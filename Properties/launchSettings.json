@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "TrayTraffic (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "TrayTraffic (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="TrayTraffic.Controls.TrafficMap"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:maps="using:WinUIEx.Maps">
+    <Grid x:Name="MapRoot">
+        <maps:MapControl
+            x:Name="Map"
+            AutomationProperties.AutomationId="TrafficMap"
+            AutomationProperties.Name="Local traffic and driving routes"
+            AutomationProperties.HelpText="Arrow keys pan. Plus and minus zoom. Enable Route to choose a driving route."
+            MapStyle="Blank" />
+        <StackPanel Margin="8" HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal" Spacing="4">
+            <ToggleButton
+                x:Name="TrafficToggle"
+                AutomationProperties.AutomationId="TrafficToggle"
+                AutomationProperties.Name="Show traffic flow"
+                Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                Checked="TrafficToggle_Changed"
+                Content="Traffic"
+                IsChecked="True"
+                ToolTipService.ToolTip="Green is flowing, amber is slow, red is congested."
+                Unchecked="TrafficToggle_Changed" />
+            <Button
+                x:Name="FitRouteButton"
+                AutomationProperties.AutomationId="FitRouteButton"
+                AutomationProperties.Name="Fit selected route"
+                Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                Click="FitRoute_Click"
+                ToolTipService.ToolTip="Fit selected route"
+                Visibility="Collapsed">
+                <FontIcon FontSize="16" Glyph="&#xE81D;" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</UserControl>
