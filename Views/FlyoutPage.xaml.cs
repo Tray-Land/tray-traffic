@@ -22,8 +22,10 @@ public sealed partial class FlyoutPage : Page, IDisposable
     private string? _key;
     private int _revision = -1;
     private int _routeCount = MaxRouteCount;
+    private CancellationTokenSource? _placeSearch;
     private bool _loadingPlaces;
     private bool _showingTrip;
+    private bool _searching;
     private bool _visible;
     private bool _disposed;
     private bool _mapValidated;
@@ -34,6 +36,7 @@ public sealed partial class FlyoutPage : Page, IDisposable
         RouteToggle.Checked += RouteToggle_Changed;
         RouteToggle.Unchecked += RouteToggle_Changed;
         Motion.AnimateVisibility(TripPicker);
+        Motion.AnimateVisibility(PlaceSearch);
         Motion.AnimateVisibility(RouteHeading);
         Motion.AnimateVisibility(RoutesArea);
         Motion.AnimateVisibility(EmptyState);
@@ -57,6 +60,7 @@ public sealed partial class FlyoutPage : Page, IDisposable
         _activation?.Cancel();
         _poller.Stop();
         _map?.SetActive(false);
+        TryCloseSearch();
         LoadingRing.IsActive = false;
         MapLoadingRing.IsActive = false;
         SkeletonPulse.Stop();
@@ -153,7 +157,9 @@ public sealed partial class FlyoutPage : Page, IDisposable
 
     private void PopulatePlaces(PlaceKind? originKind = null, PlaceKind? destinationKind = null)
     {
-        SavedPlace[] places = SettingsService.Places;
+        SavedPlace[] places = SettingsService.SearchedPlace is { } searched
+            ? [.. SettingsService.Places, searched]
+            : SettingsService.Places;
         _loadingPlaces = true;
         PlaceKind origin = originKind ?? SettingsService.Origin;
         PlaceKind destination = destinationKind ?? SettingsService.Destination;
@@ -175,6 +181,7 @@ public sealed partial class FlyoutPage : Page, IDisposable
     /// </summary>
     private static void FillPicker(ComboBox picker, SavedPlace[] places, SavedPlace? selected)
     {
+        // A newly searched place keeps its kind but changes its label, so compare both.
         if (!picker.Items.Cast<ComboBoxItem>().Select(item => (item.Tag, item.Content))
             .SequenceEqual(places.Select(place => ((object)place.Kind, (object)place.Label))))
         {
@@ -328,8 +335,9 @@ public sealed partial class FlyoutPage : Page, IDisposable
     private void UpdateRouteControls()
     {
         bool showRoutes = RouteToggle.IsChecked == true;
-        TripPicker.Visibility = showRoutes && _origin is not null && _destination is not null
-            ? Visibility.Visible : Visibility.Collapsed;
+        bool showTrip = showRoutes && _origin is not null && _destination is not null;
+        TripPicker.Visibility = showTrip && !_searching ? Visibility.Visible : Visibility.Collapsed;
+        PlaceSearch.Visibility = showTrip && _searching ? Visibility.Visible : Visibility.Collapsed;
         Visibility routeVisibility = showRoutes && _showingTrip
             ? Visibility.Visible : Visibility.Collapsed;
         RouteHeading.Visibility = routeVisibility;
@@ -484,11 +492,130 @@ public sealed partial class FlyoutPage : Page, IDisposable
 
     private void RouteToggle_Changed(object sender, RoutedEventArgs args)
     {
+        if (RouteToggle.IsChecked != true)
+        {
+            TryCloseSearch();
+        }
         UpdateRouteControls();
         if (RouteToggle.IsChecked == true)
         {
             _ = DrawSelectionAsync(true);
         }
+    }
+
+    private void SearchButton_Click(object sender, RoutedEventArgs args)
+    {
+        _searching = true;
+        PlaceSearchBox.Text = "";
+        PlaceSearchBox.ItemsSource = null;
+        PlaceSearchBox.Description = null;
+        UpdateRouteControls();
+        // Focus once the box has been laid out.
+        DispatcherQueue.TryEnqueue(() => PlaceSearchBox.Focus(FocusState.Programmatic));
+    }
+
+    private void CloseSearchButton_Click(object sender, RoutedEventArgs args) => TryCloseSearch();
+
+    /// <summary>Closes place search if it is open, so Escape backs out of it before hiding the flyout.</summary>
+    public bool TryCloseSearch()
+    {
+        if (!_searching)
+        {
+            return false;
+        }
+        _searching = false;
+        _placeSearch?.Cancel();
+        PlaceSearchBox.IsSuggestionListOpen = false;
+        UpdateRouteControls();
+        return true;
+    }
+
+    private void PlaceSearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            _placeSearch?.Cancel();
+            sender.ItemsSource = null;
+            sender.Description = null;
+        }
+    }
+
+    // One search per Enter rather than per keystroke keeps well inside TomTom's free allowance.
+    private async void PlaceSearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (args.ChosenSuggestion is PlaceResultItem chosen)
+        {
+            // Let the box finish closing its list before the trip pickers are rebuilt.
+            DispatcherQueue.TryEnqueue(() => GoTo(chosen.Place));
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(args.QueryText) || _key is not { } key || _origin is not { } origin)
+        {
+            return;
+        }
+
+        _placeSearch?.Cancel();
+        CancellationTokenSource source = new();
+        _placeSearch = source;
+        sender.ItemsSource = null;
+        sender.Description = null;
+        LoadingRing.IsActive = true;
+        try
+        {
+            PlaceCandidate[] places = await TrafficServices.Client.FindPlacesAsync(args.QueryText, origin.Location, key, source.Token);
+            source.Token.ThrowIfCancellationRequested();
+            if (!_searching)
+            {
+                return;
+            }
+            bool kilometers = SettingsService.UseKilometers;
+            sender.ItemsSource = places.Select(place => new PlaceResultItem(place, origin, kilometers)).ToArray();
+            sender.IsSuggestionListOpen = places.Length > 0;
+            if (places.Length == 0)
+            {
+                sender.Description = "Nothing found. Try a place name, an address, or a city.";
+            }
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            LogService.Warning("Searching for a place", exception);
+            if (_searching && !source.IsCancellationRequested)
+            {
+                sender.Description = TrafficServices.ErrorMessage(exception);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_placeSearch, source))
+            {
+                _placeSearch = null;
+                LoadingRing.IsActive = _poller.IsRunning && _snapshot is null;
+            }
+            source.Dispose();
+        }
+    }
+
+    /// <summary>Makes a search result the destination, keeping a saved starting place.</summary>
+    private void GoTo(PlaceCandidate place)
+    {
+        try
+        {
+            SettingsService.SearchedPlace = new(PlaceKind.Other, place.Detail.Length > 0 ? place.Detail : place.Name, place.Location, place.Name);
+        }
+        catch (Exception exception)
+        {
+            LogService.Warning("Saving the searched place", exception);
+            PlaceSearchBox.Description = "This place couldn't be used. Try another result.";
+            return;
+        }
+        TryCloseSearch();
+        PlaceKind origin = _origin is { Kind: not PlaceKind.Other } start
+            ? start.Kind
+            : SettingsService.Places.FirstOrDefault()?.Kind ?? PlaceKind.Home;
+        ChangeTrip(origin, PlaceKind.Other);
     }
 
     private void RoutesList_SelectionChanged(object sender, SelectionChangedEventArgs args) => _ = DrawSelectionAsync(false);
@@ -541,4 +668,19 @@ public sealed class RouteItem
     public string Duration { get; }
     public string Detail { get; }
     public string AccessibleName { get; }
+}
+
+public sealed class PlaceResultItem(PlaceCandidate place, SavedPlace from, bool kilometers)
+{
+    public PlaceCandidate Place { get; } = place;
+    public string Name => Place.Name;
+
+    public string Detail { get; } = place.DistanceMeters is { } meters
+        ? string.Join(" | ", new[] { $"{TrafficFormatting.Distance(meters, kilometers)} from {from.Label}", place.Detail }.Where(part => part.Length > 0))
+        : place.Detail;
+
+    public string AccessibleName => $"{Name}, {Detail}";
+
+    // The suggestion list's automation and text fallbacks read this.
+    public override string ToString() => Name;
 }

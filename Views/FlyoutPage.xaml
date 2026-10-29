@@ -74,39 +74,89 @@
             IsClosable="False"
             IsOpen="False"
             Severity="Warning" />
-        <Grid x:Name="TripPicker" Grid.Row="2" Margin="0,8,0,0" ColumnSpacing="8" Visibility="Collapsed">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <ComboBox
-                x:Name="FromPicker"
-                HorizontalAlignment="Stretch"
-                AutomationProperties.Name="Starting place"
-                Header="From"
-                IsEnabled="False"
-                SelectionChanged="Place_SelectionChanged" />
-            <Button
-                x:Name="SwapButton"
-                Grid.Column="1"
-                Margin="0,22,0,0"
-                VerticalAlignment="Top"
-                AutomationProperties.Name="Swap starting place and destination"
-                Click="SwapButton_Click"
-                IsEnabled="False"
-                Style="{StaticResource FlyoutIconButtonStyle}"
-                ToolTipService.ToolTip="Reverse this trip">
-                <FontIcon FontSize="16" Glyph="&#xE8AB;" />
-            </Button>
-            <ComboBox
-                x:Name="ToPicker"
-                Grid.Column="2"
-                HorizontalAlignment="Stretch"
-                AutomationProperties.Name="Destination"
-                Header="To"
-                IsEnabled="False"
-                SelectionChanged="Place_SelectionChanged" />
+        <Grid Grid.Row="2">
+            <Grid x:Name="TripPicker" Margin="0,8,0,0" ColumnSpacing="8" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox
+                    x:Name="FromPicker"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Starting place"
+                    IsEnabled="False"
+                    PlaceholderText="From"
+                    SelectionChanged="Place_SelectionChanged" />
+                <!-- Points the way the trip goes; clicking reverses it. -->
+                <Button
+                    x:Name="SwapButton"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Swap starting place and destination"
+                    Click="SwapButton_Click"
+                    IsEnabled="False"
+                    Style="{StaticResource FlyoutIconButtonStyle}"
+                    ToolTipService.ToolTip="Reverse this trip">
+                    <FontIcon FontSize="16" Glyph="&#xE72A;" />
+                </Button>
+                <ComboBox
+                    x:Name="ToPicker"
+                    Grid.Column="2"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Destination"
+                    IsEnabled="False"
+                    PlaceholderText="To"
+                    SelectionChanged="Place_SelectionChanged" />
+                <Button
+                    x:Name="SearchButton"
+                    Grid.Column="3"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Search for a place to go"
+                    Click="SearchButton_Click"
+                    Style="{StaticResource FlyoutIconButtonStyle}"
+                    ToolTipService.ToolTip="Search for any place to go">
+                    <FontIcon FontSize="16" Glyph="&#xE721;" />
+                </Button>
+            </Grid>
+            <Grid x:Name="PlaceSearch" Margin="0,8,0,0" ColumnSpacing="8" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <AutoSuggestBox
+                    x:Name="PlaceSearchBox"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Search for a place to go"
+                    MaxSuggestionListHeight="320"
+                    PlaceholderText="Search places and addresses"
+                    QueryIcon="Find"
+                    QuerySubmitted="PlaceSearchBox_QuerySubmitted"
+                    TextChanged="PlaceSearchBox_TextChanged"
+                    TextMemberPath="Name">
+                    <AutoSuggestBox.ItemTemplate>
+                        <DataTemplate x:DataType="views:PlaceResultItem">
+                            <StackPanel Padding="0,6" Spacing="2" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneTime}">
+                                <TextBlock Text="{x:Bind Name, Mode=OneTime}" Style="{StaticResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Detail, Mode=OneTime}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </AutoSuggestBox.ItemTemplate>
+                </AutoSuggestBox>
+                <Button
+                    x:Name="CloseSearchButton"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Close place search"
+                    Click="CloseSearchButton_Click"
+                    Style="{StaticResource FlyoutIconButtonStyle}"
+                    ToolTipService.ToolTip="Close search">
+                    <FontIcon FontSize="14" Glyph="&#xE711;" />
+                </Button>
+            </Grid>
         </Grid>
         <Grid Grid.Row="3" Margin="0,8,0,0">
             <Border

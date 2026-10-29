@@ -25,7 +25,7 @@ internal static class SettingsService
             {
                 SavedPlace[] places = JsonSerializer.Deserialize(json, TrafficJsonContext.Default.SavedPlaceArray)
                     ?? throw new JsonException();
-                if (places.Length > 3 || places.Any(place => place is null || !place.IsValid) ||
+                if (places.Length > 3 || places.Any(place => place is null || !place.IsValid || place.Kind == PlaceKind.Other) ||
                     places.DistinctBy(place => place.Kind).Count() != places.Length)
                 {
                     throw new JsonException();
@@ -37,6 +37,37 @@ internal static class SettingsService
                 LogService.Warning("Reading saved places", exception);
                 return [];
             }
+        }
+    }
+
+    /// <summary>The last place found by search in the flyout, offered alongside the saved places.</summary>
+    public static SavedPlace? SearchedPlace
+    {
+        get
+        {
+            string json = Get(nameof(SearchedPlace), "");
+            if (json.Length == 0)
+            {
+                return null;
+            }
+            try
+            {
+                SavedPlace? place = JsonSerializer.Deserialize(json, TrafficJsonContext.Default.SavedPlace);
+                return place is { Kind: PlaceKind.Other, IsValid: true } ? place : null;
+            }
+            catch (JsonException exception)
+            {
+                LogService.Warning("Reading the searched place", exception);
+                return null;
+            }
+        }
+        set
+        {
+            if (value is { Kind: not PlaceKind.Other } or { IsValid: false })
+            {
+                throw new ArgumentException("Choose a valid place from the search results.");
+            }
+            Set(nameof(SearchedPlace), value is null ? "" : JsonSerializer.Serialize(value, TrafficJsonContext.Default.SavedPlace));
         }
     }
 

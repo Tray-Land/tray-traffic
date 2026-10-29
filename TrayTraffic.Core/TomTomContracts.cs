@@ -27,6 +27,38 @@ internal sealed record GeoJsonPoint(double[] Coordinates)
     public static GeoJsonPoint From(GeoPoint point) => new([point.Longitude, point.Latitude]);
 }
 
+internal sealed record DiscoverRequest(string Query, DiscoverPoint Origin, DiscoverPreferences Preferences)
+{
+    public int MaxResults => 6;
+
+    // Everything routable; "discoverAction" results are follow-up searches, not places.
+    public DiscoverFilters Filters => new(["poi", "address", "street", "intersection", "area"]);
+}
+
+internal sealed record DiscoverPreferences(DiscoverPoint Geometry);
+
+internal sealed record DiscoverFilters(string[] Types);
+
+internal sealed record DiscoverPoint(double[] Coordinates)
+{
+    public string Type => "point";
+
+    public static DiscoverPoint From(GeoPoint point) => new([point.Longitude, point.Latitude]);
+}
+
+internal sealed class DiscoverResponse
+{
+    public DiscoverResult[]? Results { get; set; }
+}
+
+internal sealed class DiscoverResult
+{
+    public string? Title { get; set; }
+    public string[]? Subtitles { get; set; }
+    public GeoJsonGeometry? Position { get; set; }
+    public double? DistanceInMeters { get; set; }
+}
+
 internal sealed class GeocodingResponse
 {
     public GeocodingResult[]? Results { get; set; }
@@ -113,8 +145,11 @@ internal sealed class GeoJsonPath
 [JsonSerializable(typeof(RoutingRequest))]
 [JsonSerializable(typeof(RoutingResponse))]
 [JsonSerializable(typeof(GeocodingResponse))]
+[JsonSerializable(typeof(DiscoverRequest))]
+[JsonSerializable(typeof(DiscoverResponse))]
 internal partial class TomTomJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SavedPlace[]))]
+[JsonSerializable(typeof(SavedPlace))]
 public partial class TrafficJsonContext : JsonSerializerContext;

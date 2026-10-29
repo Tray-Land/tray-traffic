@@ -59,6 +59,48 @@ public sealed class TomTomClient(HttpClient http)
         }).DistinctBy(candidate => candidate.Address).ToArray();
     }
 
+    /// <summary>
+    /// Finds businesses, landmarks, and addresses by name with Places Search (Discover), ranked
+    /// toward <paramref name="near"/> and with distances measured from it.
+    /// </summary>
+    public async Task<PlaceCandidate[]> FindPlacesAsync(string query, GeoPoint near, string key, CancellationToken cancellationToken)
+    {
+        ValidateKey(key);
+        query = query.Trim();
+        if (query.Length is < 2 or > 256)
+        {
+            throw new ArgumentException("Enter a place name or address (2 to 256 characters).", nameof(query));
+        }
+        if (!near.IsValid)
+        {
+            throw new ArgumentException("The search needs a valid starting point.", nameof(near));
+        }
+
+        DiscoverPoint point = DiscoverPoint.From(near);
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, $"{Host}/maps/orbis/places/discover", key, "3");
+        request.Headers.Add("Attributes", "results(title,subtitles,position,distanceInMeters)");
+        request.Content = JsonContent.Create(new DiscoverRequest(query, point, new(point)), TomTomJsonContext.Default.DiscoverRequest);
+        DiscoverResponse response = await ReadAsync(request, TomTomJsonContext.Default.DiscoverResponse, cancellationToken)
+            .ConfigureAwait(false);
+        if (response.Results is null)
+        {
+            throw InvalidResponse();
+        }
+
+        return response.Results.Select(result =>
+        {
+            if (result is null || string.IsNullOrWhiteSpace(result.Title) || result.Title.Length > 200 ||
+                result.Position?.Type != "Point" || result.Position.Coordinates is not { Length: 2 } coordinates)
+            {
+                throw InvalidResponse();
+            }
+
+            string detail = string.Join(", ", (result.Subtitles ?? []).Where(line => !string.IsNullOrWhiteSpace(line)).Select(line => line.Trim()));
+            double? distance = result.DistanceInMeters is { } meters && double.IsFinite(meters) && meters >= 0 ? meters : null;
+            return new PlaceCandidate(result.Title.Trim(), detail.Length > 300 ? detail[..300] : detail, ReadPoint(coordinates), distance);
+        }).DistinctBy(place => (place.Name, place.Detail)).ToArray();
+    }
+
     public async Task<TrafficRoute[]> RoutesAsync(
         GeoPoint origin,
         GeoPoint destination,
@@ -161,7 +203,7 @@ public sealed class TomTomClient(HttpClient http)
         string message = code switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
-                "TomTom rejected the key. Check that it has access to Orbis routing, geocoding, maps, and traffic.",
+                "TomTom rejected the key. Check that it has access to Orbis routing, geocoding, places search, maps, and traffic.",
             HttpStatusCode.TooManyRequests =>
                 "TomTom's request limit has been reached. Retrying less often; check your account quota.",
             HttpStatusCode.BadRequest =>

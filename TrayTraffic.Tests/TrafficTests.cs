@@ -85,6 +85,43 @@ public class TrafficTests
     }
 
     [Fact]
+    public async Task FindPlaces_UsesPlacesSearchV3RankedNearTheStart()
+    {
+        using StubHandler handler = new(_ => Json("""
+            {"results":[{"type":"poi","title":"Example Museum","subtitles":["800 Main St"," Seattle, WA ",""],
+            "position":{"type":"Point","coordinates":[-122.31,47.62]},"distanceInMeters":2500.5}]}
+            """));
+        using HttpClient http = new(handler);
+        PlaceCandidate place = Assert.Single(await new TomTomClient(http).FindPlacesAsync(" museum ", Origin, Key, default));
+        Assert.Equal(new PlaceCandidate("Example Museum", "800 Main St, Seattle, WA", new(47.62, -122.31), 2500.5), place);
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.Equal("3", handler.Version);
+        Assert.StartsWith("results(", handler.Attributes);
+        Assert.DoesNotContain(Key, handler.Uri!.OriginalString);
+        using JsonDocument body = JsonDocument.Parse(handler.Body!);
+        JsonElement root = body.RootElement;
+        Assert.Equal("museum", root.GetProperty("query").GetString());
+        Assert.Equal("point", root.GetProperty("origin").GetProperty("type").GetString());
+        Assert.Equal(-122.33, root.GetProperty("origin").GetProperty("coordinates")[0].GetDouble());
+        Assert.Equal(47.60, root.GetProperty("preferences").GetProperty("geometry").GetProperty("coordinates")[1].GetDouble());
+        Assert.DoesNotContain("discoverAction",
+            root.GetProperty("filters").GetProperty("types").EnumerateArray().Select(type => type.GetString()));
+    }
+
+    [Theory]
+    [InlineData("""{"results":[{"title":"No position"}]}""")]
+    [InlineData("""{"results":[{"position":{"type":"Point","coordinates":[-122.31,47.62]}}]}""")]
+    [InlineData("""{"results":[{"title":"Bad point","position":{"type":"Point","coordinates":[-122.31,147.62]}}]}""")]
+    [InlineData("""{}""")]
+    public async Task FindPlaces_IncompleteResult_IsNotOffered(string json)
+    {
+        using StubHandler handler = new(_ => Json(json));
+        using HttpClient http = new(handler);
+        await Assert.ThrowsAsync<TrafficServiceException>(() =>
+            new TomTomClient(http).FindPlacesAsync("museum", Origin, Key, default));
+    }
+
+    [Fact]
     public async Task Routes_RequestUsesLiveTrafficAndGeoJsonCoordinateOrder()
     {
         using StubHandler handler = new(_ => Json(RouteResponse(600, 900)));
@@ -245,6 +282,23 @@ public class TrafficTests
         Assert.Equal(places, restored);
         Assert.True(restored[0].IsValid);
         Assert.False(new SavedPlace((PlaceKind)100, "Invalid", Origin).IsValid);
+    }
+
+    [Fact]
+    public void SearchedPlace_RoundTripsWithItsName_AndOlderPlacesStillRead()
+    {
+        SavedPlace searched = new(PlaceKind.Other, "800 Main St, Seattle, WA", Destination, "Example Museum");
+        string json = JsonSerializer.Serialize(searched, TrafficJsonContext.Default.SavedPlace);
+        Assert.Equal(searched, JsonSerializer.Deserialize(json, TrafficJsonContext.Default.SavedPlace));
+        Assert.Equal("Example Museum", searched.Label);
+        Assert.False((searched with { Name = " " }).IsValid);
+
+        SavedPlace older = JsonSerializer.Deserialize("""
+            {"kind":0,"address":"An example address","location":{"latitude":47.6,"longitude":-122.33}}
+            """, TrafficJsonContext.Default.SavedPlace)!;
+        Assert.Null(older.Name);
+        Assert.Equal("Home", older.Label);
+        Assert.True(older.IsValid);
     }
 
     private static HttpResponseMessage Json(string json) =>

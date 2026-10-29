@@ -363,6 +363,9 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     private void Escape_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        HidePopup();
+        if (!_page.TryCloseSearch())
+        {
+            HidePopup();
+        }
     }
 }
