@@ -107,8 +107,9 @@ internal static class WindowPlacementService
     {
         RectInt32 work = DisplayArea.Primary.WorkArea;
         uint dpi = GetDpiForPoint(new PointInt32(work.X + (work.Width / 2), work.Y + (work.Height / 2)));
-        int w = ToPhysical(width, dpi);
-        int h = ToPhysical(height, dpi);
+        // On a short or high-scale display, fit the work area so the title bar stays on screen.
+        int w = Math.Min(ToPhysical(width, dpi), work.Width);
+        int h = Math.Min(ToPhysical(height, dpi), work.Height);
         window.AppWindow.MoveAndResize(new RectInt32(work.X + ((work.Width - w) / 2), work.Y + ((work.Height - h) / 2), w, h));
     }
 
