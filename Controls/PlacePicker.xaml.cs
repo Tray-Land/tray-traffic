@@ -55,7 +55,7 @@ public sealed partial class PlacePicker : UserControl, IDisposable
             string? key = await TrafficServices.ReadKeyAsync(source.Token);
             if (key is null)
             {
-                PlaceStatus.Text = "Save a TomTom API key above before searching.";
+                PlaceStatus.Text = "Add a TomTom API key under Use your own TomTom key below before searching.";
                 return;
             }
 

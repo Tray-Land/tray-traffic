@@ -24,17 +24,6 @@
         <InfoBar x:Name="SettingsStatus" Grid.Row="1" Margin="24,0" IsOpen="False" IsClosable="True" Severity="Error" />
         <ScrollViewer Grid.Row="2">
             <StackPanel Padding="24,4,24,16" Spacing="16">
-                <StackPanel Spacing="8">
-                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Connect to traffic" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="TomTom has a free tier for maps, traffic, addresses, and driving routes. Use your own key to keep usage under your control." TextWrapping="Wrap" />
-                    <HyperlinkButton x:Name="GetKeyLink" HorizontalAlignment="Left" Padding="0" Content="Get a free TomTom API key" NavigateUri="https://developer.tomtom.com/" />
-                    <PasswordBox x:Name="ApiKeyBox" AutomationProperties.Name="TomTom API key" Header="TomTom API key" MaxLength="256" PlaceholderText="Paste your key" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="SaveKeyButton" Click="SaveKeyButton_Click" Content="Save key" Style="{StaticResource AccentButtonStyle}" />
-                        <Button x:Name="RemoveKeyButton" Click="RemoveKeyButton_Click" Content="Remove saved key" IsEnabled="False" />
-                    </StackPanel>
-                    <TextBlock x:Name="KeyStatus" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Checking saved key..." TextWrapping="Wrap" />
-                </StackPanel>
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Your places" />
                     <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Search by address, then choose a result to save it. Set any two places to start; the third is optional." TextWrapping="Wrap" />
@@ -49,6 +38,23 @@
                     <CheckBox x:Name="KilometersBox" Content="Show distances in kilometers" Checked="Preference_Changed" Unchecked="Preference_Changed" />
                     <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Traffic refreshes every 2 minutes while the flyout is open. Nothing polls in the background." TextWrapping="Wrap" />
                 </StackPanel>
+                <Expander x:Name="KeyExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <Expander.Header>
+                        <StackPanel Padding="0,8" Spacing="4">
+                            <TextBlock Text="Use your own TomTom key" />
+                            <TextBlock x:Name="KeyStatus" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Checking for a key..." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="TomTom has a free tier for maps, traffic, addresses, and driving routes. Your own key keeps usage under your control and takes priority over the built-in one." TextWrapping="Wrap" />
+                        <HyperlinkButton x:Name="GetKeyLink" HorizontalAlignment="Left" Padding="0" Content="Get a free TomTom API key" NavigateUri="https://developer.tomtom.com/" />
+                        <PasswordBox x:Name="ApiKeyBox" AutomationProperties.Name="TomTom API key" Header="TomTom API key" MaxLength="256" PlaceholderText="Paste your key" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="SaveKeyButton" Click="SaveKeyButton_Click" Content="Save key" Style="{StaticResource AccentButtonStyle}" />
+                            <Button x:Name="RemoveKeyButton" Click="RemoveKeyButton_Click" Content="Remove saved key" IsEnabled="False" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
                 <Grid Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" ColumnSpacing="12" CornerRadius="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -62,7 +68,7 @@
                 </Grid>
                 <StackPanel Spacing="4">
                     <TextBlock Text="Privacy" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Saved addresses and coordinates are stored in this app's local settings. Searches, driving endpoints, and visible map tiles are sent to TomTom. Your key is protected by Windows Credential Manager. This app has no account or telemetry." TextWrapping="Wrap" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Saved addresses and coordinates are stored in this app's local settings. Searches, driving endpoints, and visible map tiles are sent to TomTom. A key you add is protected by Windows Credential Manager. This app has no account or telemetry." TextWrapping="Wrap" />
                     <TextBlock x:Name="VersionText" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" />
                 </StackPanel>
             </StackPanel>

@@ -96,7 +96,7 @@ public sealed partial class FlyoutPage : Page, IDisposable
             if (key is null)
             {
                 ShowEmpty("Connect to live traffic",
-                    "Add a free TomTom API key in Settings, then search and save your everyday places.");
+                    "Open Settings and add a free TomTom API key under Use your own TomTom key, then save your everyday places.");
                 return;
             }
             if (_origin is null || _destination is null)

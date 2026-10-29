@@ -39,6 +39,6 @@
   </resheader>
   <data name="TomTomApiKey" xml:space="preserve">
     <value></value>
-    <comment>Optional client-side TomTom key from https://developer.tomtom.com/. Prefer entering your own key in Settings. Build-time keys can be extracted from the package; never ship an unrestricted paid key.</comment>
+    <comment>Built-in TomTom key from https://developer.tomtom.com/. Users can override it in Settings under Use your own TomTom key. Build-time keys can be extracted from the package; never ship an unrestricted paid key.</comment>
   </data>
 </root>

@@ -12,6 +12,7 @@ public sealed partial class SettingsWindow : WindowEx
     private readonly CancellationTokenSource _lifetime = new();
     private bool _loading = true;
     private bool _closed;
+    private bool _hasBuiltInKey;
     private StartupTaskState? _startupState;
 
     public SettingsWindow()
@@ -64,14 +65,19 @@ public sealed partial class SettingsWindow : WindowEx
 
     private async Task UpdateKeyStatusAsync()
     {
-        string? stored = await Task.Run(() => CredentialStore.Get(TrafficServices.CredentialName), _lifetime.Token);
-        string? effective = stored ?? await TrafficServices.ReadKeyAsync(_lifetime.Token);
+        (string? stored, string? builtIn) = await Task.Run(
+            () => (CredentialStore.Get(TrafficServices.CredentialName), Secrets.TomTomApiKey), _lifetime.Token);
         if (!_closed)
         {
+            _hasBuiltInKey = builtIn is not null;
             RemoveKeyButton.IsEnabled = stored is not null;
-            KeyStatus.Text = stored is not null ? "Key saved in Windows Credential Manager."
-                : effective is not null ? "Using the optional build-time key. You can override it with your own."
-                : "No key saved. Add one above before searching for an address.";
+            KeyStatus.Text = stored is not null ? "Using your key, saved in Windows Credential Manager."
+                : builtIn is not null ? "Using the built-in key."
+                : "No key yet. Add one before searching for an address.";
+            if (stored is null && builtIn is null)
+            {
+                KeyExpander.IsExpanded = true;
+            }
         }
     }
 
@@ -89,7 +95,7 @@ public sealed partial class SettingsWindow : WindowEx
             if (!_closed)
             {
                 SettingsStatus.Title = "Key saved securely";
-                SettingsStatus.Message = "Search for an address below to check the connection.";
+                SettingsStatus.Message = "Search for an address above to check the connection.";
                 SettingsStatus.Severity = InfoBarSeverity.Success;
                 SettingsStatus.IsOpen = true;
             }
@@ -120,7 +126,9 @@ public sealed partial class SettingsWindow : WindowEx
             {
                 XamlRoot = SettingsRoot.XamlRoot,
                 Title = "Remove your TomTom key?",
-                Content = "Live traffic and address searches will stop unless an optional build-time key is available.",
+                Content = _hasBuiltInKey
+                    ? "Tray Traffic will go back to its built-in key."
+                    : "Live traffic and address searches will stop until you add another key.",
                 PrimaryButtonText = "Remove key",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close,
