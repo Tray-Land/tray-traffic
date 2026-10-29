@@ -10,6 +10,10 @@
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="Escape" Invoked="Escape_Invoked" />
         </Grid.KeyboardAccelerators>
-        <ContentPresenter x:Name="PageHost" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <ContentPresenter x:Name="PageHost" Grid.Row="1" />
     </Grid>
 </ex:WindowEx>

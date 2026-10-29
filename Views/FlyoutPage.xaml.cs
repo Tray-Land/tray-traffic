@@ -29,6 +29,7 @@ public sealed partial class FlyoutPage : Page, IDisposable
     private bool _visible;
     private bool _disposed;
     private bool _mapValidated;
+    private TitleBar? _headerTitleBar;
 
     public FlyoutPage()
     {
@@ -45,6 +46,27 @@ public sealed partial class FlyoutPage : Page, IDisposable
     }
 
     public static Thickness StatusMargin(bool isOpen) => new(0, isOpen ? 8 : 0, 0, 0);
+
+    /// <summary>
+    /// The window modes put the header's buttons in the title bar (which shows the title), leaving
+    /// the page header empty; a flyout keeps them in its own header.
+    /// </summary>
+    public void MoveHeaderTo(TitleBar? titleBar)
+    {
+        if (titleBar is not null && _headerTitleBar is null)
+        {
+            HeaderGrid.Children.Remove(HeaderActions);
+            titleBar.RightHeader = HeaderActions;
+            _headerTitleBar = titleBar;
+        }
+        else if (titleBar is null && _headerTitleBar is not null)
+        {
+            _headerTitleBar.RightHeader = null;
+            _headerTitleBar = null;
+            HeaderGrid.Children.Add(HeaderActions);
+        }
+        HeaderGrid.Visibility = titleBar is null ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public void OnShown()
     {
@@ -621,6 +643,43 @@ public sealed partial class FlyoutPage : Page, IDisposable
     private void RoutesList_SelectionChanged(object sender, SelectionChangedEventArgs args) => _ = DrawSelectionAsync(false);
     private void RefreshButton_Click(object sender, RoutedEventArgs args) => _ = _poller.RefreshNowAsync();
     private void SettingsButton_Click(object sender, RoutedEventArgs args) => App.Current.ShowSettings();
+
+    /// <summary>Raised after the window mode or resize option changes, so the window can restyle itself.</summary>
+    public event EventHandler? WindowOptionsChanged;
+
+    private void WindowOptions_Opening(object? sender, object args)
+    {
+        WindowMode mode = SettingsService.WindowMode;
+        FlyoutModeItem.IsChecked = mode == WindowMode.Flyout;
+        WindowModeItem.IsChecked = mode == WindowMode.Window;
+        AlwaysOnTopModeItem.IsChecked = mode == WindowMode.AlwaysOnTop;
+        // A flyout is a fixed size; resizing only makes sense for a window.
+        ResizeItem.IsEnabled = mode != WindowMode.Flyout;
+        ResizeItem.IsChecked = SettingsService.WindowResizable;
+        RememberItem.IsEnabled = mode != WindowMode.Flyout;
+        RememberItem.IsChecked = SettingsService.RememberWindowBounds;
+    }
+
+    private void RememberItem_Click(object sender, RoutedEventArgs args)
+    {
+        SettingsService.RememberWindowBounds = RememberItem.IsChecked;
+        WindowOptionsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void WindowMode_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is RadioMenuFlyoutItem { Tag: string tag } && Enum.TryParse(tag, out WindowMode mode))
+        {
+            SettingsService.WindowMode = mode;
+            WindowOptionsChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void ResizeItem_Click(object sender, RoutedEventArgs args)
+    {
+        SettingsService.WindowResizable = ResizeItem.IsChecked;
+        WindowOptionsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private async void DirectionsButton_Click(object sender, RoutedEventArgs args)
     {

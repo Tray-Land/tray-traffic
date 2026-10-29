@@ -114,7 +114,10 @@ public partial class App : Application
 
     public void ShowSettings()
     {
-        _flyout?.HidePopup();
+        if (_flyout is { HidesWhenAnotherWindowOpens: true })
+        {
+            _flyout.HidePopup();
+        }
         if (_settings is null)
         {
             _settings = new SettingsWindow();

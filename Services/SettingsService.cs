@@ -1,9 +1,17 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using TrayTraffic.Core;
 using Windows.Storage;
 
 namespace TrayTraffic.Services;
+
+internal enum WindowMode
+{
+    Flyout,
+    Window,
+    AlwaysOnTop,
+}
 
 internal static class SettingsService
 {
@@ -14,6 +22,52 @@ internal static class SettingsService
     {
         get => Get(nameof(HasLaunchedBefore), false);
         set => Set(nameof(HasLaunchedBefore), value);
+    }
+
+    /// <summary>How the main popup behaves: a light-dismissing flyout, a normal window, or a window kept on top.</summary>
+    public static WindowMode WindowMode
+    {
+        get
+        {
+            int value = Get(nameof(WindowMode), (int)WindowMode.Flyout);
+            return Enum.IsDefined((WindowMode)value) ? (WindowMode)value : WindowMode.Flyout;
+        }
+        set => Set(nameof(WindowMode), (int)value);
+    }
+
+    /// <summary>Whether the window can be resized. Only applies outside flyout mode.</summary>
+    public static bool WindowResizable
+    {
+        get => Get(nameof(WindowResizable), false);
+        set => Set(nameof(WindowResizable), value);
+    }
+
+    /// <summary>Whether a window mode reopens at the size and spot it was last left in.</summary>
+    public static bool RememberWindowBounds
+    {
+        get => Get(nameof(RememberWindowBounds), false);
+        set => Set(nameof(RememberWindowBounds), value);
+    }
+
+    /// <summary>The window's last bounds in physical pixels, or null when none are saved.</summary>
+    public static Windows.Graphics.RectInt32? WindowBounds
+    {
+        get
+        {
+            string[] parts = Get(nameof(WindowBounds), "").Split(',');
+            return parts.Length == 4 && parts.All(part => int.TryParse(part, CultureInfo.InvariantCulture, out _))
+                ? new Windows.Graphics.RectInt32(
+                    int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture),
+                    int.Parse(parts[2], CultureInfo.InvariantCulture), int.Parse(parts[3], CultureInfo.InvariantCulture))
+                : null;
+        }
+        set
+        {
+            if (value is { } bounds)
+            {
+                Set(nameof(WindowBounds), string.Create(CultureInfo.InvariantCulture, $"{bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}"));
+            }
+        }
     }
 
     public static SavedPlace[] Places

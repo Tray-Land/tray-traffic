@@ -30,17 +30,16 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Grid ColumnSpacing="4">
+        <Grid x:Name="HeaderGrid" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock VerticalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="Tray Traffic" />
+            <TextBlock x:Name="HeaderTitle" VerticalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="Tray Traffic" />
+            <!-- The window modes move these into the title bar. -->
+            <StackPanel x:Name="HeaderActions" Grid.Column="1" Orientation="Horizontal" Spacing="4">
             <ToggleButton
                 x:Name="RouteToggle"
-                Grid.Column="1"
                 AutomationProperties.AutomationId="RouteToggle"
                 AutomationProperties.Name="Show driving routes"
                 Content="Route"
@@ -48,7 +47,6 @@
                 ToolTipService.ToolTip="Show trip controls, driving routes, and directions." />
             <Button
                 x:Name="RefreshButton"
-                Grid.Column="2"
                 AutomationProperties.Name="Refresh traffic"
                 Click="RefreshButton_Click"
                 IsEnabled="False"
@@ -59,13 +57,30 @@
             </Button>
             <Button
                 x:Name="SettingsButton"
-                Grid.Column="3"
                 AutomationProperties.Name="Places and settings"
                 Click="SettingsButton_Click"
                 Style="{StaticResource FlyoutIconButtonStyle}"
                 ToolTipService.ToolTip="Places and settings">
                 <FontIcon FontSize="14" Glyph="&#xE713;" />
             </Button>
+            <Button
+                x:Name="WindowOptionsButton"
+                AutomationProperties.Name="Window options"
+                Style="{StaticResource FlyoutIconButtonStyle}"
+                ToolTipService.ToolTip="Window options">
+                <FontIcon FontSize="14" Glyph="&#xE712;" />
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="WindowOptions_Opening">
+                        <RadioMenuFlyoutItem x:Name="FlyoutModeItem" GroupName="WindowMode" Text="Flyout" Click="WindowMode_Click" Tag="Flyout" />
+                        <RadioMenuFlyoutItem x:Name="WindowModeItem" GroupName="WindowMode" Text="Window" Click="WindowMode_Click" Tag="Window" />
+                        <RadioMenuFlyoutItem x:Name="AlwaysOnTopModeItem" GroupName="WindowMode" Text="Always on top" Click="WindowMode_Click" Tag="AlwaysOnTop" />
+                        <MenuFlyoutSeparator />
+                        <ToggleMenuFlyoutItem x:Name="ResizeItem" Text="Resize" Click="ResizeItem_Click" />
+                        <ToggleMenuFlyoutItem x:Name="RememberItem" Text="Remember size &amp; position" Click="RememberItem_Click" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            </StackPanel>
         </Grid>
         <InfoBar
             x:Name="StatusBar"

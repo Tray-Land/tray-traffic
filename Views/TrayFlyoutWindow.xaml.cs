@@ -2,7 +2,9 @@ using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using TrayTraffic.Controls;
 using TrayTraffic.Services;
 using Windows.Graphics;
@@ -13,6 +15,7 @@ using Windows.Win32.Graphics.Dwm;
 using Windows.Win32.UI.WindowsAndMessaging;
 using WinRT.Interop;
 using WinUIEx;
+using TitleBar = Microsoft.UI.Xaml.Controls.TitleBar;
 
 namespace TrayTraffic.Views;
 
@@ -58,6 +61,9 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     private bool _isPopupVisible;
     private bool _allowClose;
     private bool _isClosed;
+    private bool _isFlyoutMode = true;
+    private bool _placed;
+    private TitleBar? _titleBar;
     private DateTime _lastDismissedAtUtc = DateTime.MinValue;
 
     // Animation state: _baseX/_baseY is the resting position; the slide animates an offset below
@@ -79,6 +85,7 @@ public sealed partial class TrayFlyoutWindow : WindowEx
         InitializeComponent();
         _hwnd = (HWND)WindowNative.GetWindowHandle(this);
         PageHost.Content = _page;
+        _page.WindowOptionsChanged += OnWindowOptionsChanged;
 
         SystemBackdrop = _backdrop;
         ApplyShellTheme();
@@ -111,7 +118,16 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     {
         if (_isPopupVisible)
         {
-            HidePopup();
+            if (_isFlyoutMode)
+            {
+                HidePopup();
+            }
+            else
+            {
+                // A window stays open; the tray icon brings it to the front instead.
+                Activate();
+                PInvoke.SetForegroundWindow(_hwnd);
+            }
             return;
         }
 
@@ -125,8 +141,16 @@ public sealed partial class TrayFlyoutWindow : WindowEx
 
     public void ShowPopup()
     {
-        // Position before showing so the window never flashes at a stale location.
-        WindowPlacementService.PositionNearTray(this, PopupWidth, PopupHeight);
+        // Position before showing so the window never flashes at a stale location. A window mode
+        // keeps the spot and size the user gave it once it has been placed.
+        if (_isFlyoutMode || !_placed)
+        {
+            if (!TryRestoreBounds())
+            {
+                WindowPlacementService.PositionNearTray(this, PopupWidth, PopupHeight);
+            }
+            _placed = true;
+        }
         _baseX = AppWindow.Position.X;
         _baseY = AppWindow.Position.Y;
 
@@ -146,6 +170,9 @@ public sealed partial class TrayFlyoutWindow : WindowEx
         _page.OnShown();
     }
 
+    /// <summary>True when the popup light-dismisses, so opening another window should hide it.</summary>
+    public bool HidesWhenAnotherWindowOpens => SettingsService.WindowMode != WindowMode.Window;
+
     public void HidePopup()
     {
         _hideTimer.Stop();
@@ -156,6 +183,7 @@ public sealed partial class TrayFlyoutWindow : WindowEx
             return;
         }
 
+        SaveBounds();
         _isPopupVisible = false;
         _lastDismissedAtUtc = DateTime.UtcNow;
         _page.OnHidden();
@@ -238,6 +266,9 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     {
         _isHiding = true;
         _durationMs = HideDurationMs;
+        // The user may have dragged a window mode; slide from wherever it is now.
+        _baseX = AppWindow.Position.X;
+        _baseY = AppWindow.Position.Y - _currentOffset;
         _fromOffset = _currentOffset;
         _toOffset = ScaleForDpi(HideSlideDistance);
         _fromOpacity = _currentOpacity;
@@ -266,6 +297,8 @@ public sealed partial class TrayFlyoutWindow : WindowEx
         _animationClock.Reset();
         if (_isHiding)
         {
+            // Rest at the base position so a window the user moved reopens where it was left.
+            AppWindow.Move(new PointInt32(_baseX, _baseY));
             this.Hide();
         }
     }
@@ -289,23 +322,119 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     private void ConfigureWindowChrome()
     {
         OverlappedPresenter presenter = OverlappedPresenter.Create();
-        presenter.IsMaximizable = false;
         presenter.IsMinimizable = false;
-        presenter.IsResizable = false;
-        presenter.IsAlwaysOnTop = true;
-        presenter.SetBorderAndTitleBar(true, false);
         AppWindow.SetPresenter(presenter);
-        AppWindow.IsShownInSwitchers = false;
+        ApplyWindowMode();
 
         unsafe
         {
             DWM_WINDOW_CORNER_PREFERENCE corner = DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_ROUND;
             _ = PInvoke.DwmSetWindowAttribute(_hwnd, DWMWINDOWATTRIBUTE.DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(DWM_WINDOW_CORNER_PREFERENCE));
         }
+    }
 
-        // WS_EX_LAYERED enables the fade; WS_EX_TOOLWINDOW keeps it off the taskbar and Alt-Tab.
-        int exStyle = PInvoke.GetWindowLong(_hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
-        _ = PInvoke.SetWindowLong(_hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
+    /// <summary>
+    /// Styles the window for the chosen mode. A flyout is borderless, fixed, topmost and off the
+    /// taskbar; the window modes get a title bar and a taskbar button, can be resized, and stay on
+    /// top only in "always on top". Minimize is left off so a hidden window never keeps polling.
+    /// </summary>
+    private void ApplyWindowMode()
+    {
+        WindowMode mode = SettingsService.WindowMode;
+        bool flyout = mode == WindowMode.Flyout;
+        _isFlyoutMode = flyout;
+
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            bool resizable = !flyout && SettingsService.WindowResizable;
+            presenter.IsResizable = resizable;
+            presenter.IsMaximizable = resizable;
+            presenter.IsAlwaysOnTop = mode != WindowMode.Window;
+            presenter.SetBorderAndTitleBar(true, !flyout);
+        }
+
+        // The window modes draw a WinUI title bar in place of the system one. It only exists in the
+        // tree then: a flyout must not carry a title bar at all, even a collapsed one.
+        if (flyout)
+        {
+            _page.MoveHeaderTo(null);
+            if (_titleBar is not null)
+            {
+                PopupRoot.Children.Remove(_titleBar);
+            }
+            if (ExtendsContentIntoTitleBar)
+            {
+                ExtendsContentIntoTitleBar = false;
+            }
+        }
+        else
+        {
+            _titleBar ??= new TitleBar
+            {
+                Title = "Tray Traffic",
+                IconSource = new ImageIconSource { ImageSource = new BitmapImage(new Uri("ms-appx:///Assets/StoreLogo.png")) },
+            };
+            if (!PopupRoot.Children.Contains(_titleBar))
+            {
+                PopupRoot.Children.Insert(0, _titleBar);
+            }
+            ExtendsContentIntoTitleBar = true;
+            SetTitleBar(_titleBar);
+            _page.MoveHeaderTo(_titleBar);
+        }
+        AppWindow.IsShownInSwitchers = !flyout;
+
+        // WS_EX_LAYERED enables the fade; WS_EX_TOOLWINDOW keeps a flyout off the taskbar and Alt-Tab.
+        int exStyle = PInvoke.GetWindowLong(_hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE) | WS_EX_LAYERED;
+        exStyle = flyout ? exStyle | WS_EX_TOOLWINDOW : exStyle & ~WS_EX_TOOLWINDOW;
+        _ = PInvoke.SetWindowLong(_hwnd, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE, exStyle);
+    }
+
+    /// <summary>Moves a window mode back to its remembered bounds, if kept and still on a display.</summary>
+    private bool TryRestoreBounds()
+    {
+        if (_isFlyoutMode || !SettingsService.RememberWindowBounds || SettingsService.WindowBounds is not { } bounds
+            || bounds.Width < 200 || bounds.Height < 200
+            || DisplayArea.GetFromRect(bounds, DisplayAreaFallback.None) is null)
+        {
+            return false;
+        }
+
+        AppWindow.MoveAndResize(bounds);
+        return true;
+    }
+
+    private void SaveBounds()
+    {
+        if (!_isFlyoutMode && SettingsService.RememberWindowBounds)
+        {
+            // A show or hide slide in progress offsets the window; save its resting spot.
+            SettingsService.WindowBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y - _currentOffset, AppWindow.Size.Width, AppWindow.Size.Height);
+        }
+    }
+
+    private void OnWindowOptionsChanged(object? sender, EventArgs args)
+    {
+        if ((SettingsService.WindowMode == WindowMode.Flyout) != _isFlyoutMode)
+        {
+            // Extending into the title bar, the tool-window style and the borderless frame only
+            // settle on a new window, so crossing between flyout and window rebuilds it.
+            SaveBounds();
+            bool reopen = _isPopupVisible;
+            DispatcherQueue queue = DispatcherQueue;
+            CloseWindow();
+            if (reopen)
+            {
+                queue.TryEnqueue(DispatcherQueuePriority.Low, App.Current.ShowFlyout);
+            }
+            return;
+        }
+
+        ApplyWindowMode();
+        if (_isPopupVisible)
+        {
+            SaveBounds();
+        }
     }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -317,7 +446,8 @@ public sealed partial class TrayFlyoutWindow : WindowEx
             return;
         }
 
-        if (_isShowing || !_isPopupVisible)
+        // Only a flyout light-dismisses; the window modes stay until closed.
+        if (!_isFlyoutMode || _isShowing || !_isPopupVisible)
         {
             return;
         }
@@ -363,7 +493,7 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     private void Escape_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        if (!_page.TryCloseSearch())
+        if (!_page.TryCloseSearch() && _isFlyoutMode)
         {
             HidePopup();
         }
