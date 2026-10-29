@@ -35,7 +35,7 @@ internal static class TrafficServices
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         })
         {
-            Timeout = TimeSpan.FromSeconds(25),
+            Timeout = TimeSpan.FromSeconds(15),
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("TrayTraffic/1.0");
         return http;
