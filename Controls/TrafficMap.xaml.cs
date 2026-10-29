@@ -17,13 +17,21 @@ namespace TrayTraffic.Controls;
 
 public sealed partial class TrafficMap : UserControl, IDisposable
 {
-    private static readonly Thickness RouteMargin = new(32, 44, 32, 32);
+    // Keeps pins (26 px emoji) clear of the overlay buttons at the top and the attribution at the bottom.
+    private static readonly Thickness RouteMargin = new(32, 60, 32, 40);
+    private static readonly TimeSpan TrafficMaxAge = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan TrafficCrossFade = TimeSpan.FromSeconds(2);
     private readonly string _key;
     private readonly MapElementsLayer _routes = new() { IsVisible = false };
     private readonly TileLayer _basemap;
     private TileLayer _traffic;
+    private DateTimeOffset _trafficLoadedAt = DateTimeOffset.UtcNow;
+    private int _trafficGeneration;
+    private (SavedPlace Origin, SavedPlace Destination)? _trip;
     private RouteSnapshot? _snapshot;
     private int _selected;
+    private int _fitRequest;
+    private bool _hasFitted;
     private bool _active;
     private bool _disposed;
     private TaskCompletionSource? _viewportReady;
@@ -62,23 +70,51 @@ public sealed partial class TrafficMap : UserControl, IDisposable
         FitRouteButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Shows a trip whose routes are still loading: the old routes go, the two places are pinned,
+    /// and the camera glides to frame them.
+    /// </summary>
+    public async Task ShowTripAsync(SavedPlace origin, SavedPlace destination)
+    {
+        _snapshot = null;
+        _trip = (origin, destination);
+        DrawRoutes();
+        await FitAsync();
+    }
+
     public async Task ShowRouteAsync(RouteSnapshot snapshot, int selected, bool fit)
     {
         _snapshot = snapshot;
+        _trip = (snapshot.Origin, snapshot.Destination);
         _selected = selected;
         DrawRoutes();
         if (fit)
         {
-            await FitRouteAsync();
+            await FitAsync();
         }
     }
 
     public void RefreshTraffic()
     {
-        Map.Layers.Remove(_traffic);
-        _traffic = CreateTiles(MapTiles.TrafficTemplate(IsDark), "tomtom-traffic");
-        Map.Layers.Insert(1, _traffic);
+        // Flow tiles change about once a minute, so a trip switch right after a refresh reuses them.
+        if (DateTimeOffset.UtcNow - _trafficLoadedAt < TrafficMaxAge)
+        {
+            return;
+        }
+
+        // Fade the new overlay in above the old one before dropping it, so traffic never blinks out.
+        TileLayer previous = _traffic;
+        _traffic = CreateTiles(MapTiles.TrafficTemplate(IsDark), $"tomtom-traffic-{++_trafficGeneration}");
+        Map.Layers.Insert(Map.Layers.IndexOf(previous) + 1, _traffic);
+        _trafficLoadedAt = DateTimeOffset.UtcNow;
         SetActive(_active);
+        _ = RetireLayerAsync(previous);
+    }
+
+    private async Task RetireLayerAsync(TileLayer layer)
+    {
+        await Task.Delay(TrafficCrossFade);
+        Map.Layers.Remove(layer);
     }
 
     public void Dispose()
@@ -92,6 +128,7 @@ public sealed partial class TrafficMap : UserControl, IDisposable
         _routes.MapElements.Clear();
         Map.Layers.Clear();
         _snapshot = null;
+        _trip = null;
     }
 
     private TileLayer CreateTiles(string url, string id) => new(new TileLayerOptions
@@ -124,48 +161,53 @@ public sealed partial class TrafficMap : UserControl, IDisposable
     private void DrawRoutes()
     {
         _routes.MapElements.Clear();
-        if (_snapshot is not { } snapshot)
+        if (_trip is not { } trip)
         {
             return;
         }
 
-        Color accent = BrushColor("AccentFillColorDefaultBrush", UIColorType.Accent);
-        Color secondary = BrushColor("TextFillColorSecondaryBrush", UIColorType.Foreground);
-        Color outline = BrushColor("SolidBackgroundFillColorBaseBrush", UIColorType.Background);
-        for (int index = 0; index < snapshot.Routes.Length; index++)
+        if (_snapshot is { } snapshot)
         {
-            if (index == _selected)
+            Color accent = BrushColor("AccentFillColorDefaultBrush", UIColorType.Accent);
+            Color secondary = BrushColor("TextFillColorSecondaryBrush", UIColorType.Foreground);
+            Color outline = BrushColor("SolidBackgroundFillColorBaseBrush", UIColorType.Background);
+            for (int index = 0; index < snapshot.Routes.Length; index++)
             {
-                continue;
+                if (index == _selected)
+                {
+                    continue;
+                }
+                _routes.MapElements.Add(new MapPolyline
+                {
+                    Path = Path(snapshot.Routes[index]),
+                    StrokeColor = secondary,
+                    StrokeThickness = 3,
+                    StrokeDashed = true,
+                });
             }
-            _routes.MapElements.Add(new MapPolyline
-            {
-                Path = Path(snapshot.Routes[index]),
-                StrokeColor = secondary,
-                StrokeThickness = 3,
-                StrokeDashed = true,
-            });
-        }
 
-        Geopath selectedPath = Path(snapshot.Routes[_selected]);
-        _routes.MapElements.Add(new MapPolyline { Path = selectedPath, StrokeColor = outline, StrokeThickness = 8, ZIndex = 1 });
-        _routes.MapElements.Add(new MapPolyline { Path = selectedPath, StrokeColor = accent, StrokeThickness = 5, ZIndex = 2 });
-        AddPin(snapshot.Origin, accent);
-        AddPin(snapshot.Destination, accent);
+            Geopath selectedPath = Path(snapshot.Routes[_selected]);
+            _routes.MapElements.Add(new MapPolyline { Path = selectedPath, StrokeColor = outline, StrokeThickness = 8, ZIndex = 1 });
+            _routes.MapElements.Add(new MapPolyline { Path = selectedPath, StrokeColor = accent, StrokeThickness = 5, ZIndex = 2 });
+        }
+        AddPin(trip.Origin);
+        AddPin(trip.Destination);
     }
 
-    private void AddPin(SavedPlace place, Color color)
+    private void AddPin(SavedPlace place)
     {
+        // Color emoji read against both the light and dark basemaps and the accent route line.
         FontIcon visual = new()
         {
+            FontFamily = new FontFamily("Segoe UI Emoji"),
             Glyph = place.Kind switch
             {
-                PlaceKind.Home => "\uE80F",
-                PlaceKind.Work => "\uE821",
-                _ => "\uE7BE",
+                PlaceKind.Home => "\U0001F3E0",
+                PlaceKind.Work => "\U0001F3E2",
+                PlaceKind.School => "\U0001F3EB",
+                _ => "\U0001F4CD",
             },
-            FontSize = 20,
-            Foreground = new SolidColorBrush(color),
+            FontSize = 26,
         };
         _routes.MapElements.Add(new MapIcon(visual, new Geopoint(Position(place.Location)))
         {
@@ -174,9 +216,11 @@ public sealed partial class TrafficMap : UserControl, IDisposable
         });
     }
 
-    private async Task FitRouteAsync()
+    /// <summary>Frames the selected route, or the trip's two places while its routes load.</summary>
+    private async Task FitAsync()
     {
-        if (_disposed || !_routes.IsVisible || _snapshot is null)
+        int request = ++_fitRequest;
+        if (_disposed || !_routes.IsVisible || _trip is null)
         {
             return;
         }
@@ -195,17 +239,25 @@ public sealed partial class TrafficMap : UserControl, IDisposable
             return;
         }
 
-        if (_disposed || !_routes.IsVisible || _snapshot is not { } snapshot)
+        if (_disposed || !_routes.IsVisible || request != _fitRequest || _trip is not { } trip)
         {
             return;
         }
-        if (GeoboundingBox.TryCompute(snapshot.Routes[_selected].Path.Select(Position)) is not { } bounds)
+        IEnumerable<GeoPoint> points = _snapshot is { } snapshot
+            ? snapshot.Routes[_selected].Path
+            : [trip.Origin.Location, trip.Destination.Location];
+        if (GeoboundingBox.TryCompute(points.Select(Position)) is not { } bounds)
         {
-            throw new InvalidOperationException("The selected route has no valid map bounds.");
+            throw new InvalidOperationException("The trip has no valid map bounds.");
         }
-        if (!await Map.TrySetViewBoundsAsync(bounds, RouteMargin, MapAnimationKind.None) && !_disposed)
+
+        // Glide between views; the first fit lands directly because the map is fading in anyway.
+        MapAnimationKind animation = _hasFitted && Motion.Enabled ? MapAnimationKind.Default : MapAnimationKind.None;
+        _hasFitted = true;
+        // A newer fit interrupts an animated one, which is not a failure.
+        if (!await Map.TrySetViewBoundsAsync(bounds, RouteMargin, animation) && !_disposed && request == _fitRequest)
         {
-            throw new InvalidOperationException("The selected route's map view could not be applied.");
+            throw new InvalidOperationException("The trip's map view could not be applied.");
         }
     }
 
@@ -240,7 +292,7 @@ public sealed partial class TrafficMap : UserControl, IDisposable
     {
         try
         {
-            await FitRouteAsync();
+            await FitAsync();
         }
         catch (Exception exception)
         {

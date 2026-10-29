@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
 using TrayTraffic.Controls;
 using TrayTraffic.Core;
 using TrayTraffic.Services;
@@ -10,6 +11,8 @@ namespace TrayTraffic.Views;
 
 public sealed partial class FlyoutPage : Page, IDisposable
 {
+    private const int MaxRouteCount = 3;
+
     private readonly ForegroundPoller _poller;
     private CancellationTokenSource? _activation;
     private RouteSnapshot? _snapshot;
@@ -18,7 +21,9 @@ public sealed partial class FlyoutPage : Page, IDisposable
     private SavedPlace? _destination;
     private string? _key;
     private int _revision = -1;
+    private int _routeCount = MaxRouteCount;
     private bool _loadingPlaces;
+    private bool _showingTrip;
     private bool _visible;
     private bool _disposed;
     private bool _mapValidated;
@@ -28,6 +33,10 @@ public sealed partial class FlyoutPage : Page, IDisposable
         InitializeComponent();
         RouteToggle.Checked += RouteToggle_Changed;
         RouteToggle.Unchecked += RouteToggle_Changed;
+        Motion.AnimateVisibility(TripPicker);
+        Motion.AnimateVisibility(RouteHeading);
+        Motion.AnimateVisibility(RoutesArea);
+        Motion.AnimateVisibility(EmptyState);
         _poller = new(DispatcherQueue, RefreshPolicy.Interval, RefreshAsync, RefreshPolicy.Interval);
         _poller.Failed += (_, exception) => ShowError(exception);
     }
@@ -49,6 +58,8 @@ public sealed partial class FlyoutPage : Page, IDisposable
         _poller.Stop();
         _map?.SetActive(false);
         LoadingRing.IsActive = false;
+        MapLoadingRing.IsActive = false;
+        SkeletonPulse.Stop();
     }
 
     public void Dispose()
@@ -70,14 +81,13 @@ public sealed partial class FlyoutPage : Page, IDisposable
         LoadingRing.IsActive = true;
         try
         {
-            bool changed = _revision != SettingsService.Revision;
-            if (changed)
+            if (_revision != SettingsService.Revision)
             {
                 _revision = SettingsService.Revision;
-                ClearResult();
-                _poller.Invalidate();
+                PopulatePlaces();
+                ResetTrip();
             }
-            if (changed || _origin is null || _destination is null)
+            else if (_origin is null || _destination is null)
             {
                 PopulatePlaces();
             }
@@ -89,9 +99,10 @@ public sealed partial class FlyoutPage : Page, IDisposable
             }
             if (_key != key)
             {
+                // Map tiles are requested with the key, so only a new key needs a new map.
                 _key = key;
-                ClearResult();
-                _poller.Invalidate();
+                ClearMap();
+                ResetTrip();
             }
             if (key is null)
             {
@@ -108,14 +119,10 @@ public sealed partial class FlyoutPage : Page, IDisposable
 
             RefreshButton.IsEnabled = true;
             RefreshButton.Visibility = Visibility.Visible;
-            if (_snapshot is not null)
+            _map?.SetActive(_mapValidated);
+            if (_snapshot is null)
             {
-                _map?.SetActive(_mapValidated);
-            }
-            else
-            {
-                EmptyTitle.Text = "Finding the quickest route";
-                EmptyDescription.Text = "Comparing driving routes with current traffic...";
+                ShowLoading();
             }
             _poller.Start();
         }
@@ -153,29 +160,31 @@ public sealed partial class FlyoutPage : Page, IDisposable
         _origin = places.FirstOrDefault(place => place.Kind == origin) ?? places.FirstOrDefault();
         _destination = places.FirstOrDefault(place => place.Kind == destination && place != _origin)
             ?? places.FirstOrDefault(place => place != _origin);
-        FromPicker.Items.Clear();
-        ToPicker.Items.Clear();
-        foreach (SavedPlace place in places)
-        {
-            ComboBoxItem from = new() { Content = place.Label, Tag = place.Kind };
-            FromPicker.Items.Add(from);
-            if (place == _origin)
-            {
-                FromPicker.SelectedItem = from;
-                continue;
-            }
-            ComboBoxItem to = new() { Content = place.Label, Tag = place.Kind };
-            ToPicker.Items.Add(to);
-            if (place == _destination)
-            {
-                ToPicker.SelectedItem = to;
-            }
-        }
+        FillPicker(FromPicker, places, _origin);
+        FillPicker(ToPicker, places.Where(place => place != _origin).ToArray(), _destination);
         FromPicker.IsEnabled = places.Length >= 2;
         ToPicker.IsEnabled = places.Length >= 2;
         SwapButton.IsEnabled = places.Length >= 2;
         _loadingPlaces = false;
         UpdateRouteControls();
+    }
+
+    /// <summary>
+    /// Replaces a picker's items only when its places changed. Rebuilding the items of the picker
+    /// that is raising SelectionChanged crashes XAML (E_UNEXPECTED) while its drop-down closes.
+    /// </summary>
+    private static void FillPicker(ComboBox picker, SavedPlace[] places, SavedPlace? selected)
+    {
+        if (!picker.Items.Cast<ComboBoxItem>().Select(item => (item.Tag, item.Content))
+            .SequenceEqual(places.Select(place => ((object)place.Kind, (object)place.Label))))
+        {
+            picker.Items.Clear();
+            foreach (SavedPlace place in places)
+            {
+                picker.Items.Add(new ComboBoxItem { Content = place.Label, Tag = place.Kind });
+            }
+        }
+        picker.SelectedItem = picker.Items.Cast<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, selected?.Kind));
     }
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
@@ -190,8 +199,8 @@ public sealed partial class FlyoutPage : Page, IDisposable
             TrafficRoute[] routes = await TrafficServices.Client.RoutesAsync(
                 origin.Location, destination.Location, preferences, key, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            bool fit = _snapshot is null;
-            _snapshot = new(origin, destination, preferences, routes, DateTimeOffset.Now);
+            bool newTrip = _snapshot is null;
+            RouteSnapshot snapshot = new(origin, destination, preferences, routes, DateTimeOffset.Now);
             StatusBar.IsOpen = false;
             _map ??= new TrafficMap(key, origin.Location);
             MapHost.Content = _map;
@@ -216,10 +225,11 @@ public sealed partial class FlyoutPage : Page, IDisposable
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
+            _snapshot = snapshot;
             _map.SetActive(_visible && _mapValidated);
-            RenderRoutes(fit);
-            UpdatedText.Text = $"Updated {_snapshot.UpdatedAt:t} | {TrafficFormatting.PreferenceDescription(preferences)}";
-            App.Current.SetTrayStatus($"{origin.Label} to {destination.Label}: {TrafficFormatting.Duration(routes[0].TravelSeconds)} (updated {_snapshot.UpdatedAt:t})");
+            RenderRoutes(newTrip);
+            UpdatedText.Text = $"Updated {snapshot.UpdatedAt:t} | {TrafficFormatting.PreferenceDescription(preferences)}";
+            App.Current.SetTrayStatus($"{origin.Label} to {destination.Label}: {TrafficFormatting.Duration(routes[0].TravelSeconds)} (updated {snapshot.UpdatedAt:t})");
         }
         finally
         {
@@ -227,22 +237,65 @@ public sealed partial class FlyoutPage : Page, IDisposable
         }
     }
 
-    private void RenderRoutes(bool fit)
+    /// <summary>
+    /// Cross-fades from the loading placeholders to the routes. A periodic refresh of the same trip
+    /// keeps the chosen route selected and leaves the map where the user put it.
+    /// </summary>
+    private void RenderRoutes(bool newTrip)
     {
         if (_snapshot is not { } snapshot)
         {
             return;
         }
+        _showingTrip = true;
         EmptyState.Visibility = Visibility.Collapsed;
-        RouteItem[] items = snapshot.Routes.Select((route, index) =>
+        MapPlaceholder.Opacity = _mapValidated ? 0 : 1;
+        MapLoadingRing.IsActive = false;
+        MapHost.Opacity = 1;
+        int selected = newTrip ? 0 : Math.Clamp(RoutesList.SelectedIndex, 0, snapshot.Routes.Length - 1);
+        _routeCount = Math.Clamp(snapshot.Routes.Length, 1, MaxRouteCount);
+        RoutesList.ItemsSource = snapshot.Routes.Select((route, index) =>
             new RouteItem(route, index, snapshot.Routes[0].TravelSeconds, SettingsService.UseKilometers)).ToArray();
-        RoutesList.ItemsSource = items;
-        RoutesList.SelectedIndex = 0;
+        RoutesList.SelectedIndex = selected;
+        RoutesList.IsEnabled = true;
+        RoutesList.Opacity = 1;
+        RouteSkeleton.Opacity = 0;
+        SkeletonPulse.Stop();
+        DirectionsButton.IsEnabled = true;
         UpdateRouteControls();
-        if (fit && RouteToggle.IsChecked == true)
+        if (newTrip && RouteToggle.IsChecked == true)
         {
             _ = DrawSelectionAsync(true);
         }
+    }
+
+    /// <summary>
+    /// Holds the layout steady while routes load: the map (or a placeholder card) stays, and rows
+    /// shaped like the last result stand in for the route list.
+    /// </summary>
+    private void ShowLoading()
+    {
+        _showingTrip = true;
+        EmptyState.Visibility = Visibility.Collapsed;
+        bool hasMap = _map is not null && _mapValidated;
+        MapHost.Opacity = hasMap ? 1 : 0;
+        MapPlaceholder.Opacity = hasMap ? 0 : 1;
+        MapLoadingRing.IsActive = !hasMap;
+        RecommendationText.Text = "Finding the fastest route...";
+        DirectionsButton.IsEnabled = false;
+        RoutesList.IsEnabled = false;
+        RoutesList.Opacity = 0;
+        if (SkeletonRows.Items.Count != _routeCount)
+        {
+            SkeletonRows.ItemsSource = new int[_routeCount];
+        }
+        RouteSkeleton.Opacity = 1;
+        if (Motion.Enabled && SkeletonPulse.GetCurrentState() != ClockState.Active)
+        {
+            SkeletonPulse.Begin();
+        }
+        UpdatedText.Text = $"Checking traffic from {_origin?.Label} to {_destination?.Label}...";
+        UpdateRouteControls();
     }
 
     private async Task DrawSelectionAsync(bool fit)
@@ -277,39 +330,72 @@ public sealed partial class FlyoutPage : Page, IDisposable
         bool showRoutes = RouteToggle.IsChecked == true;
         TripPicker.Visibility = showRoutes && _origin is not null && _destination is not null
             ? Visibility.Visible : Visibility.Collapsed;
-        Visibility routeVisibility = showRoutes && _snapshot is not null
+        Visibility routeVisibility = showRoutes && _showingTrip
             ? Visibility.Visible : Visibility.Collapsed;
         RouteHeading.Visibility = routeVisibility;
-        RoutesList.Visibility = routeVisibility;
+        RoutesArea.Visibility = routeVisibility;
         _map?.SetRoutesVisible(showRoutes);
     }
 
-    private void ClearResult()
+    /// <summary>
+    /// Forgets the routes for the previous trip or preferences. The map stays: it drops the old
+    /// routes, pins the new places and glides to them while the new routes load.
+    /// </summary>
+    private void ResetTrip()
     {
         _snapshot = null;
+        _poller.Invalidate();
+        StatusBar.IsOpen = false;
+        App.Current.SetTrayStatus(null);
+        if (_origin is null || _destination is null)
+        {
+            return;
+        }
+        ShowLoading();
+        if (_map is not null)
+        {
+            _ = ShowTripOnMapAsync(_map, _origin, _destination);
+        }
+    }
+
+    private static async Task ShowTripOnMapAsync(TrafficMap map, SavedPlace origin, SavedPlace destination)
+    {
+        try
+        {
+            await map.ShowTripAsync(origin, destination);
+        }
+        catch (Exception exception)
+        {
+            LogService.Warning("Moving the map to a new trip", exception);
+        }
+    }
+
+    private void ClearMap()
+    {
         _mapValidated = false;
         _map?.Dispose();
         _map = null;
         MapHost.Content = null;
-        RoutesList.ItemsSource = null;
-        RoutesList.Visibility = Visibility.Collapsed;
-        RouteHeading.Visibility = Visibility.Collapsed;
+        MapHost.Opacity = 0;
         MapNotice.Visibility = Visibility.Collapsed;
-        EmptyState.Visibility = Visibility.Visible;
-        StatusBar.IsOpen = false;
-        RefreshButton.IsEnabled = false;
-        RefreshButton.Visibility = Visibility.Collapsed;
-        UpdatedText.Text = "Live traffic by TomTom";
-        App.Current.SetTrayStatus(null);
     }
 
     private void ShowEmpty(string title, string description)
     {
         _poller.Stop();
+        _showingTrip = false;
+        _map?.SetActive(false);
         RefreshButton.IsEnabled = false;
         RefreshButton.Visibility = Visibility.Collapsed;
         EmptyTitle.Text = title;
         EmptyDescription.Text = description;
+        EmptyState.Visibility = Visibility.Visible;
+        MapHost.Opacity = 0;
+        MapPlaceholder.Opacity = 0;
+        MapLoadingRing.IsActive = false;
+        SkeletonPulse.Stop();
+        UpdatedText.Text = "Live traffic by TomTom";
+        UpdateRouteControls();
     }
 
     private void ShowError(Exception exception)
@@ -320,8 +406,21 @@ public sealed partial class FlyoutPage : Page, IDisposable
         StatusBar.IsOpen = true;
         if (_snapshot is null)
         {
-            EmptyTitle.Text = "No route yet";
-            EmptyDescription.Text = "Check your key and saved places, or refresh to try again.";
+            // With a map on screen, keep it and say so in the route heading; otherwise explain in place of the map.
+            SkeletonPulse.Stop();
+            RouteSkeleton.Opacity = 0;
+            MapLoadingRing.IsActive = false;
+            RecommendationText.Text = "No route yet. Refresh to try again.";
+            UpdatedText.Text = "Live traffic by TomTom";
+            if (_map is null)
+            {
+                _showingTrip = false;
+                MapPlaceholder.Opacity = 0;
+                EmptyTitle.Text = "No route yet";
+                EmptyDescription.Text = "Check your key and saved places, or refresh to try again.";
+                EmptyState.Visibility = Visibility.Visible;
+                UpdateRouteControls();
+            }
         }
         App.Current.SetTrayStatus(_snapshot is null ? "Traffic unavailable" : $"Traffic unavailable | Last update {_snapshot.UpdatedAt:t}");
     }
@@ -334,12 +433,16 @@ public sealed partial class FlyoutPage : Page, IDisposable
         }
         PlaceKind destination = ToPicker.SelectedItem is ComboBoxItem { Tag: PlaceKind selected }
             ? selected : SettingsService.Destination;
+        ChangeTrip(origin, destination);
+    }
+
+    private void ChangeTrip(PlaceKind origin, PlaceKind destination)
+    {
         _poller.Stop();
         _activation?.Cancel();
         PopulatePlaces(origin, destination);
-        ClearResult();
+        ResetTrip();
         PersistSelection();
-        _poller.Invalidate();
         _ = ActivateAsync();
     }
 
@@ -364,17 +467,10 @@ public sealed partial class FlyoutPage : Page, IDisposable
 
     private void SwapButton_Click(object sender, RoutedEventArgs args)
     {
-        if (_origin is null || _destination is null)
+        if (_origin is not null && _destination is not null)
         {
-            return;
+            ChangeTrip(_destination.Kind, _origin.Kind);
         }
-        _poller.Stop();
-        _activation?.Cancel();
-        PopulatePlaces(_destination.Kind, _origin.Kind);
-        ClearResult();
-        PersistSelection();
-        _poller.Invalidate();
-        _ = ActivateAsync();
     }
 
     private void OnSettingsChanged(object? sender, EventArgs args)
