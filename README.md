@@ -2,7 +2,7 @@
 
 Live traffic and the quickest drive between home, work, and school, one click from the Windows tray.
 
-![Tray Traffic's setup flyout](docs/setup.png)
+![Tray Traffic's flyout open above the taskbar, showing live traffic flow around Milwaukee](docs/flyout.png)
 
 Tray Traffic is a small, tray-only WinUI 3 app. A click opens a 420 by 600 logical-pixel flyout with traffic-aware travel times, up to three driving routes, and a native traffic map. Click away to dismiss it; there is no main window.
 
