@@ -92,10 +92,12 @@ public class TrafficTests
         await new TomTomClient(http).RoutesAsync(Origin, Destination, new(true, true), Key, default);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.Equal("3", handler.Version);
-        Assert.Equal("routes.summary,routes.legs.path", handler.Attributes);
+        Assert.StartsWith("routes(summary,legs(path),instructions(routeOffsetInMeters,nextRoadInformation(", handler.Attributes);
+        Assert.DoesNotContain("phonetic", handler.Attributes);
         Assert.DoesNotContain(Key, handler.Uri!.OriginalString);
         using JsonDocument body = JsonDocument.Parse(handler.Body!);
         JsonElement root = body.RootElement;
+        Assert.Equal("instructions", root.GetProperty("guidance").GetString());
         Assert.Equal("fast", root.GetProperty("routeType").GetString());
         Assert.Equal("live", root.GetProperty("traffic").GetString());
         Assert.Equal("now", root.GetProperty("departureDateTime").GetString());
@@ -151,6 +153,58 @@ public class TrafficTests
         TrafficRoute route = Assert.Single(await new TomTomClient(http).RoutesAsync(Origin, Destination, new(), Key, default));
         Assert.Equal(900.5, route.TravelSeconds);
         Assert.Equal("16 min", TrafficFormatting.Duration(route.TravelSeconds));
+    }
+
+    [Fact]
+    public async Task Routes_GuidanceRoads_NameTheRoute()
+    {
+        string json = RouteResponse(900).Replace("\"legs\":", """
+            "instructions":[
+            {"routeOffsetInMeters":0,"nextRoadInformation":{"properties":["urban"],
+              "roadNames":[{"identifier":{"text":"Elm Rd"},"source":"signpost"},{"identifier":{"text":"West Elm Street"},"source":"road"}]}},
+            {"routeOffsetInMeters":5000,"nextRoadInformation":{"properties":["motorway","controlledAccess"],
+              "roadNumbers":[{"identifier":{"text":"I-90"},"source":"road"},{"identifier":{"text":"I-90 W"},"source":"signpost"}]}},
+            {"routeOffsetInMeters":12000,"nextRoadInformation":{"properties":["urban"]}}],
+            "legs":
+            """);
+        using StubHandler handler = new(_ => Json(json));
+        using HttpClient http = new(handler);
+        TrafficRoute route = Assert.Single(await new TomTomClient(http).RoutesAsync(Origin, Destination, new(), Key, default));
+        Assert.Equal("Elm St to I-90 W", route.Name);
+    }
+
+    [Fact]
+    public async Task Routes_AlternativesOnTheSameMainRoads_GetDifferentNames()
+    {
+        static string Via(string street) => $$$"""
+            "instructions":[
+            {"routeOffsetInMeters":0,"nextRoadInformation":{"roadNames":[{"identifier":{"text":"Elm Street"},"source":"road"}]}},
+            {"routeOffsetInMeters":5000,"nextRoadInformation":{"roadNames":[{"identifier":{"text":"{{{street}}}"},"source":"road"}]}},
+            {"routeOffsetInMeters":5200,"nextRoadInformation":{"properties":["motorway"],
+              "roadNumbers":[{"identifier":{"text":"I-90 W"},"source":"signpost"}]}}],
+            "legs":
+            """;
+        string[] routes = RouteResponse(900, 1000, 1100).Split("\"legs\":");
+        string json = routes[0] + Via("Oak Avenue") + routes[1] + Via("Pine Road") + routes[2] + Via("Lake Drive") + routes[3];
+        using StubHandler handler = new(_ => Json(json));
+        using HttpClient http = new(handler);
+        TrafficRoute[] named = await new TomTomClient(http).RoutesAsync(Origin, Destination, new(), Key, default);
+        Assert.Equal(["Elm St to Oak Ave to I-90 W", "Elm St to Pine Rd to I-90 W", "Elm St to Lake Dr to I-90 W"],
+            named.Select(route => route.Name));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\"instructions\":[],")]
+    [InlineData("\"instructions\":[null,{\"nextRoadInformation\":{\"roadNames\":[{\"identifier\":{\"text\":\"Elm Street\"}}]}}],")]
+    [InlineData("\"instructions\":[{\"routeOffsetInMeters\":0,\"nextRoadInformation\":{\"roadNames\":[null,{\"identifier\":{\"text\":\" \"}}]}}],")]
+    public async Task Routes_MissingOrUnusableGuidance_StillReturnsTheRouteUnnamed(string instructions)
+    {
+        string json = RouteResponse(900).Replace("\"legs\":", instructions + "\"legs\":");
+        using StubHandler handler = new(_ => Json(json));
+        using HttpClient http = new(handler);
+        TrafficRoute route = Assert.Single(await new TomTomClient(http).RoutesAsync(Origin, Destination, new(), Key, default));
+        Assert.Null(route.Name);
     }
 
     [Theory]

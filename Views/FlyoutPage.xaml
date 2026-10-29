@@ -157,7 +157,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Spacing="2">
-                            <TextBlock Text="{x:Bind Title, Mode=OneTime}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{x:Bind Title, Mode=OneTime}" Style="{StaticResource BodyStrongTextBlockStyle}" MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
                             <TextBlock Text="{x:Bind Detail, Mode=OneTime}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
                         </StackPanel>
                         <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Duration, Mode=OneTime}" Style="{StaticResource SubtitleTextBlockStyle}" />

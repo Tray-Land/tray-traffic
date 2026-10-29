@@ -9,6 +9,11 @@ public sealed class TomTomClient(HttpClient http)
 {
     private const string Host = "https://api.tomtom.com";
 
+    // Only the instruction fields that name roads; the rest of guidance would triple the response.
+    private const string RouteAttributes =
+        "routes(summary,legs(path),instructions(routeOffsetInMeters," +
+        "nextRoadInformation(properties,roadNames(identifier(text),source),roadNumbers(identifier(text),source))))";
+
     public static void ValidateKey(string key)
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length > 256 ||
@@ -81,7 +86,7 @@ public sealed class TomTomClient(HttpClient http)
             avoids.Count > 0 ? [.. avoids] : null);
         using HttpRequestMessage request = CreateRequest(HttpMethod.Post,
             $"{Host}/maps/orbis/routing/routes/calculate", key, "3");
-        request.Headers.Add("Attributes", "routes.summary,routes.legs.path");
+        request.Headers.Add("Attributes", RouteAttributes);
         request.Content = JsonContent.Create(body, TomTomJsonContext.Default.RoutingRequest);
 
         RoutingResponse response = await ReadAsync(request, TomTomJsonContext.Default.RoutingResponse, cancellationToken)
@@ -91,8 +96,11 @@ public sealed class TomTomClient(HttpClient http)
             throw new TrafficServiceException("No driving route was found between these places.");
         }
 
-        return routes.Select(ReadRoute).OrderBy(route => route.TravelSeconds)
-            .ThenBy(route => route.DistanceMeters).Take(3).ToArray();
+        // Named together, after choosing the three shown, so their names tell them apart.
+        (TrafficRoute Route, RouteRoad[] Roads)[] shown = [.. routes.Select(ReadRoute)
+            .OrderBy(read => read.Route.TravelSeconds).ThenBy(read => read.Route.DistanceMeters).Take(3)];
+        string?[] names = RouteNaming.NameRoutes([.. shown.Select(read => (read.Roads, read.Route.DistanceMeters))]);
+        return [.. shown.Select((read, index) => read.Route with { Name = names[index] })];
     }
 
     public async Task CheckMapAccessAsync(GeoPoint location, string key, bool dark, CancellationToken cancellationToken)
@@ -165,7 +173,7 @@ public sealed class TomTomClient(HttpClient http)
         throw new TrafficServiceException(message, (int)code);
     }
 
-    private static TrafficRoute ReadRoute(RouteResponse? route)
+    private static (TrafficRoute Route, RouteRoad[] Roads) ReadRoute(RouteResponse? route)
     {
         if (route?.Summary is not
             {
@@ -208,9 +216,36 @@ public sealed class TomTomClient(HttpClient http)
             throw InvalidResponse();
         }
 
-        return new(summary.TravelDurationInSeconds.Value, summary.TrafficDelayDurationInSeconds.Value,
-            summary.LengthInMeters.Value, summary.ArrivalDateTime.Value, [.. path]);
+        return (new(summary.TravelDurationInSeconds.Value, summary.TrafficDelayDurationInSeconds.Value,
+            summary.LengthInMeters.Value, summary.ArrivalDateTime.Value, [.. path]), ReadRoads(route.Instructions));
     }
+
+    /// <summary>
+    /// Reads the road each instruction turns onto. Names only label the route, so an instruction
+    /// without a usable offset is skipped rather than failing the refresh.
+    /// </summary>
+    private static RouteRoad[] ReadRoads(RouteInstruction?[]? instructions) =>
+        [.. (instructions ?? []).Select(instruction =>
+        {
+            if (instruction?.RouteOffsetInMeters is not { } offset || !double.IsFinite(offset) || offset < 0)
+            {
+                return null;
+            }
+
+            RoadInformation? road = instruction.NextRoadInformation;
+            return new RouteRoad(offset,
+                RoadTexts(road?.RoadNames, "road").FirstOrDefault(),
+                RoadTexts(road?.RoadNumbers, "signpost"),
+                road?.Properties?.Any(property => property is "motorway" or "controlledAccess") == true);
+        }).OfType<RouteRoad>()];
+
+    private static string[] RoadTexts(RoadIdentifier?[]? identifiers, string preferredSource) =>
+        [.. (identifiers ?? []).OfType<RoadIdentifier>()
+            .OrderBy(identifier => identifier.Source == preferredSource ? 0 : 1)
+            .Select(identifier => identifier.Identifier?.Text?.Trim())
+            .OfType<string>()
+            .Where(text => text.Length is > 0 and <= 100)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
 
     private static GeoPoint ReadPoint(double[]? coordinates)
     {

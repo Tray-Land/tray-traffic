@@ -427,15 +427,22 @@ public sealed partial class FlyoutPage : Page, IDisposable
 
 public sealed class RouteItem
 {
+    /// <summary>
+    /// Titles a route by its main roads when TomTom named them, falling back to its rank. The list is
+    /// sorted fastest first and the selected route's comparison is shown above it, so the rank only
+    /// needs to be spoken.
+    /// </summary>
     public RouteItem(TrafficRoute route, int index, double fastestSeconds, bool kilometers)
     {
-        Title = index == 0 ? "Fastest route" : route.TravelSeconds == fastestSeconds ? "Also fastest" : $"Alternative {index}";
+        string rank = index == 0 ? "Fastest route" : route.TravelSeconds == fastestSeconds ? "Also fastest" : $"Alternative {index}";
+        Title = route.Name ?? rank;
         Duration = TrafficFormatting.Duration(route.TravelSeconds);
         Detail = $"{TrafficFormatting.Distance(route.DistanceMeters, kilometers)} | {TrafficFormatting.Delay(route.DelaySeconds)}";
+        AccessibleName = $"{(route.Name is null ? rank : $"{rank} via {route.Name}")}, {Duration}, {Detail}";
     }
 
     public string Title { get; }
     public string Duration { get; }
     public string Detail { get; }
-    public string AccessibleName => $"{Title}, {Duration}, {Detail}";
+    public string AccessibleName { get; }
 }

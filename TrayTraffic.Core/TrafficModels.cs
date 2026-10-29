@@ -27,12 +27,14 @@ public sealed record LocationCandidate(string Address, GeoPoint Location);
 
 public sealed record RoutePreferences(bool AvoidTolls = false, bool AvoidFerries = false);
 
+/// <param name="Name">The route's main roads in driving order, such as "Elm St to I-90 W"; null when they aren't known.</param>
 public sealed record TrafficRoute(
     double TravelSeconds,
     double DelaySeconds,
     double DistanceMeters,
     DateTimeOffset Arrival,
-    GeoPoint[] Path);
+    GeoPoint[] Path,
+    string? Name = null);
 
 public sealed record RouteSnapshot(
     SavedPlace Origin,

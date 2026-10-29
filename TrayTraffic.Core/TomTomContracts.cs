@@ -11,6 +11,11 @@ internal sealed record RoutingRequest(
     public string Traffic => "live";
     public string TravelMode => "car";
     public int MaxPathAlternativeRoutes => 2;
+
+    // Guidance supplies the road names that label each route. Phonetics are required with it,
+    // but the Attributes header leaves them out of the response.
+    public string Guidance => "instructions";
+    public string InstructionPhonetics => "ipa";
 }
 
 internal sealed record RoutePlanningLocations(GeoJsonPoint Origin, GeoJsonPoint Destination);
@@ -54,6 +59,33 @@ internal sealed class RouteResponse
 {
     public RouteSummary? Summary { get; set; }
     public RouteLeg[]? Legs { get; set; }
+    public RouteInstruction?[]? Instructions { get; set; }
+}
+
+internal sealed class RouteInstruction
+{
+    public double? RouteOffsetInMeters { get; set; }
+    public RoadInformation? NextRoadInformation { get; set; }
+}
+
+internal sealed class RoadInformation
+{
+    public string?[]? Properties { get; set; }
+    public RoadIdentifier?[]? RoadNames { get; set; }
+    public RoadIdentifier?[]? RoadNumbers { get; set; }
+}
+
+internal sealed class RoadIdentifier
+{
+    public RoadText? Identifier { get; set; }
+
+    /// <summary>"road" for the map's own name, "signpost" for what the sign says (with a direction).</summary>
+    public string? Source { get; set; }
+}
+
+internal sealed class RoadText
+{
+    public string? Text { get; set; }
 }
 
 internal sealed class RouteSummary
