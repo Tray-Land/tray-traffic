@@ -68,6 +68,8 @@ public sealed partial class FlyoutPage : Page, IDisposable
         HeaderGrid.Visibility = titleBar is null ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    public void ShowRoutes() => RouteToggle.IsChecked = true;
+
     public void OnShown()
     {
         _visible = true;
@@ -110,8 +112,14 @@ public sealed partial class FlyoutPage : Page, IDisposable
             if (_revision != SettingsService.Revision)
             {
                 _revision = SettingsService.Revision;
-                PopulatePlaces();
+                UpcomingTrip? upcoming = UpcomingScheduledTrip();
+                PopulatePlaces(upcoming?.Routine.From, upcoming?.Routine.To);
                 ResetTrip();
+                if (upcoming is { InWindow: true } && !SettingsService.RemindersPaused)
+                {
+                    // A reminder is due soon: open straight onto that trip's routes, refreshing.
+                    ShowRoutes();
+                }
             }
             else if (_origin is null || _destination is null)
             {
@@ -175,6 +183,19 @@ public sealed partial class FlyoutPage : Page, IDisposable
             }
             source.Dispose();
         }
+    }
+
+    /// <summary>The next scheduled trip whose two places are both saved, or null.</summary>
+    private static UpcomingTrip? UpcomingScheduledTrip()
+    {
+        SavedPlace[] places = SettingsService.Places;
+        return CommutePlanner.Upcoming(
+            SettingsService.Routines.Where(routine =>
+                places.Any(place => place.Kind == routine.From) && places.Any(place => place.Kind == routine.To)),
+            DateTimeOffset.Now,
+            routine => SettingsService.UsualTravel(routine.Id),
+            TimeSpan.FromMinutes(SettingsService.ReminderLeadMinutes),
+            TimeZoneInfo.Local);
     }
 
     private void PopulatePlaces(PlaceKind? originKind = null, PlaceKind? destinationKind = null)

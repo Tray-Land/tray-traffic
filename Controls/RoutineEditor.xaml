@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="TrayTraffic.Controls.RoutineEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid
+        Padding="12"
+        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+        BorderThickness="1"
+        ColumnSpacing="12"
+        CornerRadius="8"
+        RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+            <CheckBox x:Name="EnabledBox" Checked="Routine_Changed" Unchecked="Routine_Changed" />
+            <TextBlock
+                x:Name="TripText"
+                Margin="28,0,0,0"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+        <TimePicker
+            x:Name="TimeBox"
+            Grid.Column="1"
+            VerticalAlignment="Center"
+            MinuteIncrement="5"
+            SelectedTimeChanged="TimeBox_SelectedTimeChanged" />
+        <StackPanel x:Name="DayButtons" Grid.Row="1" Grid.ColumnSpan="2" Margin="28,0,0,0" Orientation="Horizontal" Spacing="4" />
+    </Grid>
+</UserControl>

@@ -173,6 +173,9 @@ public sealed partial class TrayFlyoutWindow : WindowEx
     /// <summary>True when the popup light-dismisses, so opening another window should hide it.</summary>
     public bool HidesWhenAnotherWindowOpens => SettingsService.WindowMode != WindowMode.Window;
 
+    /// <summary>Turns on the trip controls and route list, e.g. before showing a reminder's trip.</summary>
+    public void ShowRoutes() => _page.ShowRoutes();
+
     public void HidePopup()
     {
         _hideTimer.Stop();

@@ -36,7 +36,27 @@
                     <CheckBox x:Name="AvoidTollsBox" Content="Avoid toll roads" Checked="Preference_Changed" Unchecked="Preference_Changed" />
                     <CheckBox x:Name="AvoidFerriesBox" Content="Avoid ferries" Checked="Preference_Changed" Unchecked="Preference_Changed" />
                     <CheckBox x:Name="KilometersBox" Content="Show distances in kilometers" Checked="Preference_Changed" Unchecked="Preference_Changed" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Traffic refreshes every 2 minutes while the flyout is open. Nothing polls in the background." TextWrapping="Wrap" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="Traffic refreshes every 2 minutes while the flyout is open." TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Leave reminders" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Get a notification when it's time to leave, timed with live traffic." TextWrapping="Wrap" />
+                    <InfoBar
+                        x:Name="NotificationsOffBar"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="Windows is blocking notifications from Tray Traffic, so reminders can't appear."
+                        Severity="Warning"
+                        Title="Notifications are off">
+                        <InfoBar.ActionButton>
+                            <HyperlinkButton Content="Open notification settings" NavigateUri="ms-settings:notifications" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    <controls:RoutineEditor x:Name="WorkArrivalEditor" />
+                    <controls:RoutineEditor x:Name="SchoolArrivalEditor" />
+                    <controls:RoutineEditor x:Name="WorkDepartureEditor" />
+                    <ComboBox x:Name="LeadTimeBox" Header="Remind me" SelectionChanged="LeadTimeBox_SelectionChanged" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="For an arrive-by reminder, traffic is checked a few times in the half hour before it's due, only on the days you pick. Reminders need Tray Traffic running, so keep Start with Windows on. Pause them any time from the tray menu." TextWrapping="Wrap" />
                 </StackPanel>
                 <Expander x:Name="KeyExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                     <Expander.Header>

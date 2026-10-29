@@ -31,16 +31,58 @@ public sealed partial class SettingsWindow : WindowEx
         AvoidFerriesBox.IsChecked = SettingsService.AvoidFerries;
         KilometersBox.IsChecked = SettingsService.UseKilometers;
         VersionText.Text = $"{App.DisplayName} {GetVersion()}";
+        WorkArrivalEditor.Initialize(CommuteRoutine.ArriveAtWork);
+        SchoolArrivalEditor.Initialize(CommuteRoutine.ArriveAtSchool);
+        WorkDepartureEditor.Initialize(CommuteRoutine.LeaveWork);
+        foreach (int minutes in SettingsService.ReminderLeadChoices)
+        {
+            LeadTimeBox.Items.Add(new ComboBoxItem { Content = $"{minutes} minutes before I need to leave", Tag = minutes });
+        }
+        LeadTimeBox.SelectedIndex = Array.IndexOf(SettingsService.ReminderLeadChoices, SettingsService.ReminderLeadMinutes);
+        UpdateNotificationsWarning();
+        SettingsService.Changed += OnPlacesChanged;
+        SettingsService.RemindersChanged += OnRemindersChanged;
         Closed += (_, _) =>
         {
             _closed = true;
             _lifetime.Cancel();
+            SettingsService.Changed -= OnPlacesChanged;
+            SettingsService.RemindersChanged -= OnRemindersChanged;
             HomePicker.Dispose();
             WorkPicker.Dispose();
             SchoolPicker.Dispose();
         };
         _loading = false;
         _ = LoadAsync();
+    }
+
+    // A reminder can only run once both of its places are saved.
+    private void OnPlacesChanged(object? sender, EventArgs args)
+    {
+        WorkArrivalEditor.Refresh();
+        SchoolArrivalEditor.Refresh();
+        WorkDepartureEditor.Refresh();
+    }
+
+    private void OnRemindersChanged(object? sender, EventArgs args) => UpdateNotificationsWarning();
+
+    private void UpdateNotificationsWarning() =>
+        NotificationsOffBar.IsOpen = SettingsService.Routines.Any(routine => routine.Enabled) && !NotificationService.IsEnabled;
+
+    private void LeadTimeBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loading || LeadTimeBox.SelectedItem is not ComboBoxItem { Tag: int minutes })
+        {
+            return;
+        }
+        try
+        {
+            SettingsService.ReminderLeadMinutes = minutes;
+        }
+        catch (Exception exception)
+        {
+            ShowFailure("Reminder time couldn't be saved", exception);
+        }
     }
 
     private async Task LoadAsync()

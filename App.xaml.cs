@@ -1,6 +1,9 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Windows.AppLifecycle;
+using Microsoft.Windows.AppNotifications;
+using TrayTraffic.Core;
 using TrayTraffic.Services;
 using TrayTraffic.Views;
 using WinUIEx;
@@ -29,6 +32,7 @@ public partial class App : Application
     private TrayFlyoutWindow? _flyout;
     private SettingsWindow? _settings;
     private DispatcherQueue? _dispatcher;
+    private CommuteReminderService? _reminders;
     private bool _isExiting;
 
     public App()
@@ -73,9 +77,17 @@ public partial class App : Application
             (_, _) => _dispatcher.TryEnqueue(ShowFlyout), null, Timeout.Infinite, executeOnlyOnce: false);
 
         InitializeTrayIcon();
+        InitializeReminders();
 
+        // Clicking a reminder while the app wasn't running launches it to show that trip.
+        if (AppInstance.GetCurrent().GetActivatedEventArgs() is { Kind: ExtendedActivationKind.AppNotification } activation &&
+            activation.Data is AppNotificationActivatedEventArgs notification &&
+            NotificationService.ReadTrip(notification.Arguments) is { } trip)
+        {
+            ShowTrip(trip.From, trip.To);
+        }
         // First run: show where the app lives instead of launching into silence.
-        if (!SettingsService.HasLaunchedBefore)
+        else if (!SettingsService.HasLaunchedBefore)
         {
             try
             {
@@ -112,6 +124,23 @@ public partial class App : Application
         flyout.ShowPopup();
     }
 
+    /// <summary>Opens the flyout on a trip with its routes showing, e.g. from a reminder.</summary>
+    public void ShowTrip(PlaceKind from, PlaceKind to)
+    {
+        try
+        {
+            SettingsService.Origin = from;
+            SettingsService.Destination = to;
+            SettingsService.NotifyChanged();
+        }
+        catch (Exception exception)
+        {
+            LogService.Warning("Opening a reminder's trip", exception);
+        }
+        EnsureFlyout().ShowRoutes();
+        ShowFlyout();
+    }
+
     public void ShowSettings()
     {
         if (_flyout is { HidesWhenAnotherWindowOpens: true })
@@ -146,6 +175,17 @@ public partial class App : Application
     private static string TrayIconPath => Path.Combine(
         AppContext.BaseDirectory, "Assets", SystemThemeService.IsLight ? "AppIcon-dark.ico" : "AppIcon.ico");
 
+    private void InitializeReminders()
+    {
+        NotificationService.Register();
+        NotificationService.TripRequested += (_, trip) => _dispatcher?.TryEnqueue(() => ShowTrip(trip.From, trip.To));
+        _reminders = new CommuteReminderService(_dispatcher!);
+        // Places and the key decide whether a routine can run; routines decide when.
+        SettingsService.Changed += (_, _) => _reminders?.Refresh();
+        SettingsService.RemindersChanged += (_, _) => _reminders?.Refresh();
+        _reminders.Refresh();
+    }
+
     private void TrayIcon_ContextMenu(TrayIcon sender, TrayIconEventArgs args)
     {
         MenuFlyout menu = new();
@@ -158,6 +198,13 @@ public partial class App : Application
 
         menu.Items.Add(open);
         menu.Items.Add(settings);
+        // The way out of background reminders, without digging through Settings.
+        if (SettingsService.Routines.Any(routine => routine.Enabled))
+        {
+            ToggleMenuFlyoutItem pause = new() { Text = "Pause leave reminders", IsChecked = SettingsService.RemindersPaused };
+            pause.Click += (_, _) => PauseReminders(pause.IsChecked);
+            menu.Items.Add(pause);
+        }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);
         args.Flyout = menu;
@@ -187,9 +234,23 @@ public partial class App : Application
         }
     }
 
+    private static void PauseReminders(bool paused)
+    {
+        try
+        {
+            SettingsService.RemindersPaused = paused;
+        }
+        catch (Exception exception)
+        {
+            LogService.Warning("Pausing leave reminders", exception);
+        }
+    }
+
     private void ExitApp()
     {
         _isExiting = true;
+        _reminders?.Stop();
+        NotificationService.Unregister();
         _flyout?.CloseWindow();
         _settings?.Close();
 

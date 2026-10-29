@@ -217,7 +217,7 @@
             <TextBlock
                 Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                 Style="{StaticResource CaptionTextBlockStyle}"
-                Text="Free TomTom tier. No background polling."
+                Text="Free TomTom tier. Traffic updates only while this is open, or for leave reminders you turn on."
                 TextAlignment="Center"
                 TextWrapping="Wrap" />
         </StackPanel>

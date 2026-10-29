@@ -152,4 +152,5 @@ internal partial class TomTomJsonContext : JsonSerializerContext;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SavedPlace[]))]
 [JsonSerializable(typeof(SavedPlace))]
+[JsonSerializable(typeof(CommuteRoutine[]))]
 public partial class TrafficJsonContext : JsonSerializerContext;

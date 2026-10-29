@@ -16,7 +16,13 @@ internal enum WindowMode
 internal static class SettingsService
 {
     public static event EventHandler? Changed;
+
+    /// <summary>Routines, the reminder lead time, or pausing changed. Doesn't disturb the flyout's trip.</summary>
+    public static event EventHandler? RemindersChanged;
+
     public static int Revision { get; private set; }
+
+    public static readonly int[] ReminderLeadChoices = [5, 10, 15, 20, 30];
 
     public static bool HasLaunchedBefore
     {
@@ -156,6 +162,84 @@ internal static class SettingsService
     }
 
     public static RoutePreferences Preferences => new(AvoidTolls, AvoidFerries);
+
+    /// <summary>The leave-time reminder routines, always one for each default pattern.</summary>
+    public static CommuteRoutine[] Routines
+    {
+        get
+        {
+            CommuteRoutine[] saved = [];
+            try
+            {
+                saved = JsonSerializer.Deserialize(Get(nameof(Routines), "[]"), TrafficJsonContext.Default.CommuteRoutineArray) ?? [];
+            }
+            catch (JsonException exception)
+            {
+                LogService.Warning("Reading reminder routines", exception);
+            }
+            return CommuteRoutine.Defaults
+                .Select(fallback => saved.FirstOrDefault(routine => routine is { IsValid: true } && routine.Id == fallback.Id
+                    && routine.From == fallback.From && routine.To == fallback.To && routine.Kind == fallback.Kind) ?? fallback)
+                .ToArray();
+        }
+    }
+
+    /// <summary>Saves one routine. A changed routine may be due again today, so its reminder resets.</summary>
+    public static void SaveRoutine(CommuteRoutine routine)
+    {
+        if (!routine.IsValid)
+        {
+            throw new ArgumentException("This reminder isn't valid.");
+        }
+        CommuteRoutine[] routines = Routines.Select(existing => existing.Id == routine.Id ? routine : existing).ToArray();
+        Set(nameof(Routines), JsonSerializer.Serialize(routines, TrafficJsonContext.Default.CommuteRoutineArray));
+        ApplicationData.Current.LocalSettings.Values.Remove(RemindedKey(routine.Id));
+        RemindersChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    public static int ReminderLeadMinutes
+    {
+        get
+        {
+            int minutes = Get(nameof(ReminderLeadMinutes), ReminderLeadChoices[0]);
+            return ReminderLeadChoices.Contains(minutes) ? minutes : ReminderLeadChoices[0];
+        }
+        set
+        {
+            Set(nameof(ReminderLeadMinutes), value);
+            RemindersChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    public static bool RemindersPaused
+    {
+        get => Get(nameof(RemindersPaused), false);
+        set
+        {
+            Set(nameof(RemindersPaused), value);
+            RemindersChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>The date of the last occurrence a routine reminded for, so a restart doesn't repeat it.</summary>
+    public static DateOnly? RemindedOn(string routineId) =>
+        DateOnly.TryParseExact(Get(RemindedKey(routineId), ""), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly date)
+            ? date : null;
+
+    public static void SetRemindedOn(string routineId, DateOnly date) =>
+        Set(RemindedKey(routineId), date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+    /// <summary>The routine's last measured travel time, used before today's traffic is known.</summary>
+    public static TimeSpan UsualTravel(string routineId)
+    {
+        double seconds = Get(TravelKey(routineId), 0d);
+        return double.IsFinite(seconds) && seconds > 0 ? TimeSpan.FromSeconds(seconds) : CommutePlanner.DefaultTravel;
+    }
+
+    public static void SetUsualTravel(string routineId, double seconds) => Set(TravelKey(routineId), seconds);
+
+    private static string RemindedKey(string routineId) => $"RemindedOn.{routineId}";
+    private static string TravelKey(string routineId) => $"UsualTravel.{routineId}";
 
     public static void SavePlace(SavedPlace place)
     {
