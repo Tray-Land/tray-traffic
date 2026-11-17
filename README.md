@@ -59,9 +59,9 @@ Coverage and live traffic availability vary by region. Alternative routes are on
 
 ## Install
 
-Download [TrayTraffic.appinstaller](https://github.com/Tray-Land/tray-traffic/releases/latest/download/TrayTraffic.appinstaller) and open it. Windows installs the right version for your PC (x64 or ARM64), plus the Windows App Runtime if it's missing, and keeps Tray Traffic up to date: it checks for a new release when the app starts and in the background.
+[<img src="docs/MSIX.svg" alt="Install TrayTraffic (MSIX)" width="212">](https://github.com/Tray-Land/tray-traffic/releases/latest/download/TrayTraffic.appinstaller)
 
-The link works from the first published release. Until then, build from source (below).
+Download [TrayTraffic.appinstaller](https://github.com/Tray-Land/tray-traffic/releases/latest/download/TrayTraffic.appinstaller) and open it. Windows installs the right version for your PC (x64 or ARM64), plus the Windows App Runtime if it's missing, and keeps Tray Traffic up to date: it checks for a new release when the app starts and in the background.
 
 Requirements: Windows 10 1809 (build 17763) or later, or Windows 11, on x64 or ARM64.
 
